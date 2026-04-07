@@ -9,10 +9,10 @@ import 'core/theme/app_theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load ENV
+  // 🔹 Load ENV
   await dotenv.load(fileName: ".env");
 
-  // Initialize Supabase
+  // 🔹 Initialize Supabase
   await Supabase.initialize(
     url: dotenv.env['SUPABASE_URL']!,
     anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
@@ -31,7 +31,11 @@ class MyApp extends ConsumerWidget {
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       title: 'Circle',
+
+      // ✅ THEME APPLIED (as per instruction)
       theme: AppTheme.darkTheme,
+
+      // ✅ KEEP EXISTING ROUTER (IMPORTANT)
       routerConfig: router,
     );
   }

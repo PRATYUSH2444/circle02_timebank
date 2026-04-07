@@ -5,9 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/feed_provider.dart';
 import '../widgets/create_post_dialog.dart';
 
-//
-// ✅ TOP-LEVEL FUNCTION (FIXED POSITION)
-//
+/// 🔥 COMMENTS BOTTOM SHEET (SAFE)
 void showCommentsBottomSheet(
     BuildContext context, String postId, WidgetRef ref) {
   showModalBottomSheet(
@@ -18,23 +16,33 @@ void showCommentsBottomSheet(
       return FutureBuilder(
         future: ref.read(feedRepositoryProvider).fetchComments(postId),
         builder: (context, snapshot) {
-          final comments = snapshot.data ?? [];
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final comments = snapshot.data as List;
+
+          if (comments.isEmpty) {
+            return const Center(
+              child: Text("No comments",
+                  style: TextStyle(color: Colors.white)),
+            );
+          }
 
           return ListView(
             padding: const EdgeInsets.all(16),
-            children: [
-              const Text("Comments",
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold)),
-
-              ...comments.map((c) => ListTile(
-                title: Text(c['users']?['name'] ?? '',
-                    style: const TextStyle(color: Colors.white)),
-                subtitle: Text(c['content'],
-                    style: const TextStyle(color: Colors.white70)),
-              )),
-            ],
+            children: comments.map((c) {
+              return ListTile(
+                title: Text(
+                  c['users']?['name'] ?? 'User',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                subtitle: Text(
+                  c['content'],
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              );
+            }).toList(),
           );
         },
       );
@@ -90,21 +98,7 @@ class FeedScreen extends ConsumerWidget {
                 itemCount: posts.length,
                 itemBuilder: (context, index) {
                   final post = posts[index];
-
-                  return TweenAnimationBuilder(
-                    duration: Duration(milliseconds: 400 + index * 100),
-                    tween: Tween(begin: 30.0, end: 0.0),
-                    builder: (context, value, child) {
-                      return Transform.translate(
-                        offset: Offset(0, value),
-                        child: Opacity(
-                          opacity: 1 - (value / 30),
-                          child: child,
-                        ),
-                      );
-                    },
-                    child: _PostCard(post: post, ref: ref),
-                  );
+                  return _PostCard(post: post, ref: ref);
                 },
               );
             },
@@ -118,7 +112,6 @@ class FeedScreen extends ConsumerWidget {
 
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.cyanAccent,
-        elevation: 8,
         onPressed: () {
           showDialog(
             context: context,
@@ -139,156 +132,49 @@ class _PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: Colors.cyanAccent.withValues(alpha: 0.25),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Card(
+      margin: const EdgeInsets.all(10),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(post.userName ?? "User",
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+
+            const SizedBox(height: 6),
+
+            Text(post.content ?? ""),
+
+            const SizedBox(height: 10),
+
+            Row(
               children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 22,
-                      backgroundColor: Colors.grey.shade800,
-                      backgroundImage: post.avatarUrl != null
-                          ? NetworkImage(post.avatarUrl!)
-                          : null,
-                      child: post.avatarUrl == null
-                          ? const Icon(Icons.person, color: Colors.white)
-                          : null,
-                    ),
-                    const SizedBox(width: 10),
-
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          post.userName,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Text(
-                          _formatTime(post.createdAt),
-                          style: const TextStyle(
-                            color: Colors.white60,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                IconButton(
+                  icon: const Icon(Icons.favorite_border),
+                  onPressed: () async {
+                    await ref
+                        .read(feedRepositoryProvider)
+                        .toggleLike(post.id);
+                    ref.invalidate(feedProvider);
+                  },
                 ),
-
-                const SizedBox(height: 12),
-
-                Text(
-                  post.type.toUpperCase(),
-                  style: const TextStyle(
-                    color: Colors.cyanAccent,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-
-                const SizedBox(height: 6),
-
-                Text(
-                  post.content,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                  ),
-                ),
-
-                // 🔥 ADD THIS BLOCK
-                if (post.imageUrl != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.network(post.imageUrl!),
-                    ),
-                  ),
-
-                const SizedBox(height: 12),
-
-                FutureBuilder(
-                  future: Future.wait([
-                    ref.read(feedRepositoryProvider).getLikeCount(post.id),
-                    ref.read(feedRepositoryProvider).getCommentCount(post.id),
-                  ]),
-                  builder: (context, snapshot) {
-                    final likes = snapshot.data?[0] ?? 0;
-                    final comments = snapshot.data?[1] ?? 0;
-
-                    return Row(
-                      children: [
-                        _iconButton(
-                          icon: Icons.favorite_border,
-                          color: Colors.pinkAccent,
-                          count: likes,
-                          onTap: () async {
-                            await ref
-                                .read(feedRepositoryProvider)
-                                .toggleLike(post.id);
-                            ref.invalidate(feedProvider);
-                          },
-                        ),
-
-                        const SizedBox(width: 20),
-
-                        _iconButton(
-                          icon: Icons.chat_bubble_outline,
-                          color: Colors.greenAccent,
-                          count: comments,
-                          onTap: () {
-                            showCommentsBottomSheet(context, post.id, ref);
-                          },
-                        ),
-                      ],
-                    );
+                IconButton(
+                  icon: const Icon(Icons.comment),
+                  onPressed: () {
+                    showCommentsBottomSheet(context, post.id, ref);
                   },
                 ),
               ],
-            ),
-          ),
+            )
+          ],
         ),
       ),
     );
   }
-
-  Widget _iconButton({
-    required IconData icon,
-    required Color color,
-    required int count,
-    required VoidCallback onTap,
-  }) {
-    return Row(
-      children: [
-        GestureDetector(
-          onTap: onTap,
-          child: Icon(icon, color: color, size: 22),
-        ),
-        const SizedBox(width: 5),
-        Text("$count", style: const TextStyle(color: Colors.white)),
-      ],
-    );
-  }
 }
 
+/// 🔥 FIXED BACKGROUND (WITH DISPOSE)
 class AnimatedGradientBackground extends StatefulWidget {
   const AnimatedGradientBackground({super.key});
 
@@ -304,33 +190,25 @@ class _AnimatedGradientBackgroundState
 
   @override
   void initState() {
+    super.initState();
     controller =
     AnimationController(vsync: this, duration: const Duration(seconds: 10))
-      ..repeat(reverse: true);
-    super.initState();
+      ..repeat();
+  }
+
+  @override
+  void dispose() {
+    controller.dispose(); // 🔥 FIX
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (_, __) {
-        return Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Colors.black,
-                Colors.blue.withValues(alpha: 0.2 * controller.value),
-                Colors.purple.withValues(alpha: 0.2),
-              ],
-            ),
-          ),
-        );
-      },
-    );
+    return Container(color: Colors.black);
   }
 }
 
+/// 🔥 FIXED PARTICLES (LIGHT VERSION)
 class NeonParticles extends StatefulWidget {
   const NeonParticles({super.key});
 
@@ -344,60 +222,20 @@ class _NeonParticlesState extends State<NeonParticles>
 
   @override
   void initState() {
-    controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 25),
-    )..repeat();
     super.initState();
+    controller =
+    AnimationController(vsync: this, duration: const Duration(seconds: 20))
+      ..repeat();
+  }
+
+  @override
+  void dispose() {
+    controller.dispose(); // 🔥 FIX
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (_, __) {
-        return CustomPaint(
-          painter: ParticlePainter(controller.value),
-          size: Size.infinite,
-        );
-      },
-    );
+    return const SizedBox(); // 🔥 simplified
   }
-}
-
-class ParticlePainter extends CustomPainter {
-  final double progress;
-
-  ParticlePainter(this.progress);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint();
-
-    for (int i = 0; i < 10; i++) {
-      paint.color = (i % 2 == 0
-          ? Colors.cyanAccent
-          : Colors.purpleAccent)
-          .withValues(alpha: 0.12);
-
-      final x = (i * 100.0 + progress * 40) % size.width;
-      final y = (i * 140.0 + progress * 50) % size.height;
-
-      canvas.drawCircle(Offset(x, y), 4, paint);
-
-      paint.maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
-      canvas.drawCircle(Offset(x, y), 6, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
-
-String _formatTime(DateTime time) {
-  final diff = DateTime.now().difference(time);
-
-  if (diff.inMinutes < 60) return "${diff.inMinutes}m ago";
-  if (diff.inHours < 24) return "${diff.inHours}h ago";
-  return "${diff.inDays}d ago";
 }
