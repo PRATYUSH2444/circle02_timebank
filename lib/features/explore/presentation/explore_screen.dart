@@ -57,23 +57,26 @@ class _ExploreScreenState extends State<ExploreScreen> {
     });
   }
 
-  // 🔥 OPEN SLOTS
-  void openSlots(ListingModel l) async {
-    final slots = await repo.getSlots(l.id);
-
-    if (!mounted) return;
-
+  /// 🔥 SLOT UI (UPGRADED)
+  void openSlots(ListingModel l) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.black,
       isScrollControlled: true,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
+      builder: (_) {
+        return FutureBuilder(
+          future: repo.getSlots(l.id),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final slots = snapshot.data!;
+
             return Padding(
               padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+              child: ListView(
+                shrinkWrap: true,
                 children: [
                   Text(
                     l.skill,
@@ -101,64 +104,50 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     final isBooked = s['is_booked'] ?? false;
 
                     return Card(
-                      color: isBooked ? Colors.grey[800] : null,
+                      color: isBooked ? Colors.grey[800] : Colors.grey[900],
                       child: ListTile(
                         title: Text(
                           "${time.day}/${time.month} ${time.hour}:${time.minute.toString().padLeft(2, '0')}",
+                          style: const TextStyle(color: Colors.white),
                         ),
                         subtitle: Text(
-                          isBooked ? "Already booked" : "Available",
+                          isBooked ? "Booked" : "Available",
+                          style: TextStyle(
+                            color: isBooked
+                                ? Colors.red
+                                : Colors.green,
+                          ),
                         ),
-                        trailing: isBooked
-                            ? const Icon(Icons.lock, color: Colors.red)
-                            : const Icon(Icons.lock_open,
-                            color: Colors.green),
+                        trailing: Icon(
+                          isBooked
+                              ? Icons.lock
+                              : Icons.lock_open,
+                          color: isBooked
+                              ? Colors.red
+                              : Colors.green,
+                        ),
 
                         onTap: isBooked
                             ? null
                             : () async {
-                          final messenger =
-                          ScaffoldMessenger.of(context);
+                          await sessionRepo.bookSession(
+                            listingId: l.id,
+                            teacherId: l.mentorId,
+                            slotId: s['id'],
+                            slotTime: time,
+                            duration: l.duration,
+                          );
 
-                          try {
-                            // 🔥 LOADING
-                            showDialog(
-                              context: context,
-                              barrierDismissible: false,
-                              builder: (_) => const Center(
-                                  child:
-                                  CircularProgressIndicator()),
-                            );
+                          if (!mounted) return;
 
-                            await sessionRepo.bookSession(
-                              listingId: l.id,
-                              teacherId: l.mentorId,
-                              slotId: s['id'],
-                              slotTime: time,
-                              duration: l.duration,
-                            );
+                          Navigator.pop(context);
 
-                            if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text("Session booked 🎉")),
+                          );
 
-                            Navigator.pop(context); // loading
-                            Navigator.pop(context); // sheet
-
-                            messenger.showSnackBar(
-                              const SnackBar(
-                                content:
-                                Text("Session booked 🎉"),
-                              ),
-                            );
-
-                            fetch();
-                          } catch (e) {
-                            Navigator.pop(context);
-
-                            messenger.showSnackBar(
-                              SnackBar(
-                                  content: Text(e.toString())),
-                            );
-                          }
+                          fetch();
                         },
                       ),
                     );
@@ -202,6 +191,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         child: ListView(
           padding: const EdgeInsets.all(12),
           children: [
+
             const Text("🌍 All Mentors",
                 style: TextStyle(
                     fontSize: 18,
@@ -212,12 +202,38 @@ class _ExploreScreenState extends State<ExploreScreen> {
             ...listings.map((l) => GestureDetector(
               onTap: () => openSlots(l),
               child: Card(
+                color: Colors.grey[900],
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
                 child: ListTile(
-                  title: Text(l.skill),
-                  subtitle: Text(
-                      "${l.level} • ${l.duration} mins"),
-                  trailing:
-                  const Icon(Icons.arrow_forward),
+                  contentPadding:
+                  const EdgeInsets.all(12),
+                  title: Text(
+                    l.skill,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                    children: [
+                      Text("👤 ${l.mentorName}",
+                          style: const TextStyle(
+                              color: Colors.white70)),
+                      Text(
+                          "${l.level} • ${l.duration} mins",
+                          style: const TextStyle(
+                              color: Colors.white60)),
+                      Text(
+                          "Slots: ${l.totalSlots}",
+                          style: const TextStyle(
+                              color: Colors.cyanAccent)),
+                    ],
+                  ),
+                  trailing: const Icon(Icons.arrow_forward,
+                      color: Colors.white),
                 ),
               ),
             )),
@@ -233,17 +249,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
             ...myListings.map((l) => Card(
               child: ListTile(
                 title: Text(l.skill),
-                subtitle: Text(
-                    "${l.level} • ${l.duration} mins"),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.edit,
-                          color: Colors.blue),
+                      icon: const Icon(Icons.edit),
                       onPressed: () async {
-                        final result =
-                        await Navigator.push(
+                        final result = await Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (_) =>
@@ -256,8 +268,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       },
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete,
-                          color: Colors.red),
+                      icon: const Icon(Icons.delete),
                       onPressed: () async {
                         await repo.deleteListing(l.id);
                         fetch();

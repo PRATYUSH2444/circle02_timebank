@@ -1,7 +1,10 @@
 import 'dart:typed_data';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../core/services/supabase_service.dart';
 import '../../../shared/models/post_model.dart';
+import '../providers/feed_provider.dart';
 
 class FeedRepository {
   final supabase = SupabaseService.client;
@@ -53,43 +56,49 @@ class FeedRepository {
   }
 
   // LIKE POST
-  Future<void> toggleLike(String postId) async {
-    final user = supabase.auth.currentUser;
+  Future<void> toggleLike(String postId, WidgetRef ref) async {
+    final userId = supabase.auth.currentUser!.id;
 
     final existing = await supabase
         .from('likes')
         .select()
         .eq('post_id', postId)
-        .eq('user_id', user!.id);
+        .eq('user_id', userId);
 
-    if (existing.isNotEmpty) {
+    if (existing.isEmpty) {
+      await supabase.from('likes').insert({
+        'post_id': postId,
+        'user_id': userId,
+      });
+    } else {
       await supabase
           .from('likes')
           .delete()
           .eq('post_id', postId)
-          .eq('user_id', user.id);
-    } else {
-      await supabase.from('likes').insert({
-        'post_id': postId,
-        'user_id': user.id,
-      });
+          .eq('user_id', userId);
     }
+
+    /// 🔥 ADD THIS
+    ref.invalidate(feedProvider);
   }
 
   // ADD COMMENT
   Future<void> addComment({
     required String postId,
     required String content,
+    required WidgetRef ref,
   }) async {
-    final user = supabase.auth.currentUser;
+    final userId = supabase.auth.currentUser!.id;
 
     await supabase.from('comments').insert({
       'post_id': postId,
+      'user_id': userId,
       'content': content,
-      'user_id': user!.id,
     });
-  }
 
+    /// 🔥 ADD THIS
+    ref.invalidate(feedProvider);
+  }
   // LIKE COUNT
   Future<int> getLikeCount(String postId) async {
     final res = await supabase

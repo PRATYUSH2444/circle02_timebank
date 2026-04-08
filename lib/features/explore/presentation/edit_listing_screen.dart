@@ -8,82 +8,108 @@ class EditListingScreen extends StatefulWidget {
   const EditListingScreen({super.key, required this.listing});
 
   @override
-  State<EditListingScreen> createState() => _EditListingScreenState();
+  State<EditListingScreen> createState() =>
+      _EditListingScreenState();
 }
 
-class _EditListingScreenState extends State<EditListingScreen> {
-  late TextEditingController skill;
-  late TextEditingController desc;
+class _EditListingScreenState
+    extends State<EditListingScreen> {
+  final repo = ListingRepository();
 
-  String level = "Beginner";
-  int duration = 60;
+  late TextEditingController skillController;
+  late TextEditingController descController;
+
+  late String level;
+  late int duration;
+
+  bool isLoading = false;
 
   @override
   void initState() {
-    skill = TextEditingController(text: widget.listing.skill);
-    desc = TextEditingController(text: widget.listing.description);
+    super.initState();
+
+    skillController =
+        TextEditingController(text: widget.listing.skill);
+    descController =
+        TextEditingController(text: widget.listing.description);
+
     level = widget.listing.level;
     duration = widget.listing.duration;
-    super.initState();
+  }
+
+  Future<void> update() async {
+    setState(() => isLoading = true);
+
+    try {
+      await repo.updateListing(
+        id: widget.listing.id,
+        skill: skillController.text,
+        level: level,
+        description: descController.text,
+        duration: duration,
+      );
+
+      if (!mounted) return;
+
+      Navigator.pop(context, true);
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+
+    setState(() => isLoading = false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Edit Listing")),
-
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
+        child: ListView(
           children: [
+
             TextField(
-              controller: skill,
-              decoration: const InputDecoration(labelText: "Skill"),
+              controller: skillController,
+              decoration:
+              const InputDecoration(labelText: "Skill"),
             ),
 
             TextField(
-              controller: desc,
-              decoration: const InputDecoration(labelText: "Description"),
+              controller: descController,
+              decoration:
+              const InputDecoration(labelText: "Description"),
             ),
 
             DropdownButton<String>(
               value: level,
               items: ["Beginner", "Intermediate", "Advanced"]
-                  .map((e) => DropdownMenuItem(
-                value: e,
-                child: Text(e),
-              ))
+                  .map((e) =>
+                  DropdownMenuItem(value: e, child: Text(e)))
                   .toList(),
-              onChanged: (val) => setState(() => level = val!),
+              onChanged: (v) => setState(() => level = v!),
             ),
+
+            const SizedBox(height: 10),
 
             DropdownButton<int>(
               value: duration,
-              items: [30, 60, 90]
+              items: [30, 45, 60]
                   .map((e) => DropdownMenuItem(
-                value: e,
-                child: Text("$e min"),
-              ))
+                  value: e, child: Text("$e min")))
                   .toList(),
-              onChanged: (val) => setState(() => duration = val!),
+              onChanged: (v) =>
+                  setState(() => duration = v!),
             ),
 
             const SizedBox(height: 20),
 
             ElevatedButton(
-              onPressed: () async {
-                await ListingRepository().updateListing(
-                  id: widget.listing.id,
-                  skill: skill.text,
-                  level: level,
-                  description: desc.text,
-                  duration: duration,
-                );
-
-                Navigator.pop(context);
-              },
-              child: const Text("Update"),
-            )
+              onPressed: isLoading ? null : update,
+              child: isLoading
+                  ? const CircularProgressIndicator()
+                  : const Text("Update"),
+            ),
           ],
         ),
       ),
