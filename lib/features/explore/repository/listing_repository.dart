@@ -4,7 +4,16 @@ import '../model/listing_model.dart';
 class ListingRepository {
   final supabase = Supabase.instance.client;
 
-  // ✅ CREATE LISTING + SLOTS
+  /// 🔥 FETCH (OPTIMIZED)
+  Future<List<ListingModel>> fetchAll() async {
+    final res = await supabase.rpc('get_listings_with_meta');
+
+    return (res as List)
+        .map((e) => ListingModel.fromMap(e))
+        .toList();
+  }
+
+  /// CREATE
   Future<void> createListing({
     required String skill,
     required String level,
@@ -26,25 +35,15 @@ class ListingRepository {
         .select()
         .single();
 
-    // 🔥 INSERT SLOTS
     for (var slot in slots) {
       await supabase.from('listing_slots').insert({
         'listing_id': listing['id'],
-        'slot_time': slot.toIso8601String(), // ✅ FIXED (consistent)
+        'slot_time': slot.toIso8601String(),
       });
     }
   }
 
-  // ✅ FETCH ALL LISTINGS
-  Future<List<ListingModel>> fetchAll() async {
-    final res = await supabase.from('listings').select();
-
-    return (res as List)
-        .map((e) => ListingModel.fromMap(e))
-        .toList();
-  }
-
-  // ✅ UPDATE LISTING
+  /// UPDATE
   Future<void> updateListing({
     required String id,
     required String skill,
@@ -60,15 +59,13 @@ class ListingRepository {
     }).eq('id', id);
   }
 
-  // ✅ DELETE LISTING
+  /// DELETE
   Future<void> deleteListing(String id) async {
-    // 🔥 ALSO DELETE SLOTS (important)
     await supabase.from('listing_slots').delete().eq('listing_id', id);
-
     await supabase.from('listings').delete().eq('id', id);
   }
 
-  // ✅ GET SLOTS FOR A LISTING
+  /// GET SLOTS
   Future<List<Map<String, dynamic>>> getSlots(String listingId) async {
     final res = await supabase
         .from('listing_slots')
