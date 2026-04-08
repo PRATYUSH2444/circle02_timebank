@@ -1,34 +1,51 @@
 class PostModel {
   final String id;
-  final String content;
-  final String type;
   final String userId;
+  final String content;
+  final String? imageUrl;
+  final DateTime createdAt;
+
   final String userName;
   final String? avatarUrl;
-  final String? imageUrl; // ✅ ADDED
-  final DateTime createdAt;
+
+  final int likeCount;
+  final int commentCount;
+
+  /// ✅ NEW FIELD
+  final bool isLiked;
 
   PostModel({
     required this.id,
-    required this.content,
-    required this.type,
     required this.userId,
+    required this.content,
+    this.imageUrl,
+    required this.createdAt,
     required this.userName,
     this.avatarUrl,
-    this.imageUrl, // ✅ ADDED
-    required this.createdAt,
+    required this.likeCount,
+    required this.commentCount,
+
+    /// ✅ ADD IN CONSTRUCTOR
+    required this.isLiked,
   });
 
   factory PostModel.fromMap(Map<String, dynamic> map) {
     return PostModel(
       id: map['id'],
-      content: map['content'],
-      type: map['type'] ?? '',
       userId: map['user_id'],
-      userName: map['users']?['name'] ?? 'Unknown',
-      avatarUrl: map['users']?['avatar_url'],
-      imageUrl: map['image_url'], // ✅ ADDED
+      content: map['content'],
+      imageUrl: map['image_url'],
       createdAt: DateTime.parse(map['created_at']),
+
+      /// 🔥 IMPORTANT (FROM RPC)
+      userName: map['name'] ?? 'Unknown',
+      avatarUrl: map['avatar_url'],
+
+      likeCount: (map['like_count'] ?? 0) as int,
+      commentCount: (map['comment_count'] ?? 0) as int,
+
+      /// ✅ NEW FIELD MAPPED
+      isLiked: map['is_liked'] ?? false,
     );
   }
 }

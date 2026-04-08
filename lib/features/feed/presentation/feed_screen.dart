@@ -1,48 +1,123 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
+import '../../../shared/models/post_model.dart';
 import '../providers/feed_provider.dart';
+import '../repository/feed_repository.dart';
 import '../widgets/create_post_dialog.dart';
 
-/// 🔥 COMMENTS BOTTOM SHEET (SAFE)
+/// ================= COMMENTS =================
 void showCommentsBottomSheet(
     BuildContext context, String postId, WidgetRef ref) {
+  final controller = TextEditingController();
+
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.black,
     isScrollControlled: true,
     builder: (_) {
-      return FutureBuilder(
-        future: ref.read(feedRepositoryProvider).fetchComments(postId),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+      return StatefulBuilder(
+        builder: (context, setState) {
+          Future<List> loadComments() async {
+            return await ref
+                .read(feedRepositoryProvider)
+                .fetchComments(postId);
           }
 
-          final comments = snapshot.data as List;
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
 
-          if (comments.isEmpty) {
-            return const Center(
-              child: Text("No comments",
-                  style: TextStyle(color: Colors.white)),
-            );
-          }
+                /// COMMENTS LIST
+                FutureBuilder(
+                  future: loadComments(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Padding(
+                        padding: EdgeInsets.all(20),
+                        child: CircularProgressIndicator(),
+                      );
+                    }
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: comments.map((c) {
-              return ListTile(
-                title: Text(
-                  c['users']?['name'] ?? 'User',
-                  style: const TextStyle(color: Colors.white),
+                    final comments = snapshot.data as List;
+
+                    return SizedBox(
+                      height: 300,
+                      child: comments.isEmpty
+                          ? const Center(
+                        child: Text(
+                          "No comments yet",
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      )
+                          : ListView(
+                        children: comments.map((c) {
+                          return ListTile(
+                            leading: CircleAvatar(
+                              child: Text(
+                                (c['users']?['name'] ?? 'U')[0],
+                              ),
+                            ),
+                            title: Text(
+                              c['users']?['name'] ?? 'User',
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            subtitle: Text(
+                              c['content'],
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    );
+                  },
                 ),
-                subtitle: Text(
-                  c['content'],
-                  style: const TextStyle(color: Colors.white70),
+
+                /// INPUT
+                Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: controller,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: const InputDecoration(
+                            hintText: "Write a comment...",
+                            hintStyle:
+                            TextStyle(color: Colors.white54),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.send,
+                            color: Colors.cyan),
+                        onPressed: () async {
+                          if (controller.text.trim().isEmpty) return;
+
+                          await ref
+                              .read(feedRepositoryProvider)
+                              .addComment(
+                            postId: postId,
+                            content: controller.text.trim(),
+                            ref: ref,
+                          );
+
+                          controller.clear();
+                          setState(() {});
+                        },
+                      )
+                    ],
+                  ),
                 ),
-              );
-            }).toList(),
+              ],
+            ),
           );
         },
       );
@@ -50,6 +125,7 @@ void showCommentsBottomSheet(
   );
 }
 
+/// ================= FEED =================
 class FeedScreen extends ConsumerWidget {
   const FeedScreen({super.key});
 
@@ -77,37 +153,46 @@ class FeedScreen extends ConsumerWidget {
         ],
       ),
 
-      body: Stack(
-        children: [
-          const AnimatedGradientBackground(),
-          const NeonParticles(),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(feedProvider);
+        },
+        child: Stack(
+          children: [
+            const AnimatedGradientBackground(),
+            const NeonParticles(),
 
-          postsAsync.when(
-            data: (posts) {
-              if (posts.isEmpty) {
-                return const Center(
-                  child: Text(
-                    "No posts yet",
-                    style: TextStyle(color: Colors.white70),
-                  ),
+            postsAsync.when(
+              data: (posts) {
+                if (posts.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      "No posts yet",
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 100),
+                  itemCount: posts.length,
+                  itemBuilder: (context, index) {
+                    return _PostCard(post: posts[index]);
+                  },
                 );
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.only(bottom: 100),
-                itemCount: posts.length,
-                itemBuilder: (context, index) {
-                  final post = posts[index];
-                  return _PostCard(post: post, ref: ref);
-                },
-              );
-            },
-            loading: () =>
-            const Center(child: CircularProgressIndicator()),
-            error: (e, _) =>
-                Center(child: Text(e.toString())),
-          ),
-        ],
+              },
+              loading: () => ListView.builder(
+                itemCount: 5,
+                itemBuilder: (_, __) => const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: LinearProgressIndicator(),
+                ),
+              ),
+              error: (e, _) =>
+                  Center(child: Text("Error: $e")),
+            ),
+          ],
+        ),
       ),
 
       floatingActionButton: FloatingActionButton(
@@ -124,49 +209,141 @@ class FeedScreen extends ConsumerWidget {
   }
 }
 
-class _PostCard extends StatelessWidget {
-  final dynamic post;
-  final WidgetRef ref;
+/// ================= POST CARD =================
+class _PostCard extends ConsumerWidget {
+  final PostModel post;
 
-  const _PostCard({required this.post, required this.ref});
+  const _PostCard({required this.post});
+
+  String getTimeAgo(DateTime date) {
+    final diff = DateTime.now().difference(date);
+
+    if (diff.inSeconds < 60) return "Just now";
+    if (diff.inMinutes < 60) return "${diff.inMinutes} min ago";
+    if (diff.inHours < 24) return "${diff.inHours} hrs ago";
+    if (diff.inDays < 7) return "${diff.inDays} days ago";
+    return "${(diff.inDays / 7).floor()} weeks ago";
+  }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final repo = ref.read(feedRepositoryProvider);
+
     return Card(
-      margin: const EdgeInsets.all(10),
+      color: Colors.grey[900],
+      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
+      elevation: 4,
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(post.userName ?? "User",
-                style: const TextStyle(fontWeight: FontWeight.bold)),
 
-            const SizedBox(height: 6),
-
-            Text(post.content ?? ""),
-
-            const SizedBox(height: 10),
-
+            /// HEADER
             Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.favorite_border),
-                  onPressed: () async {
-                    await ref
-                        .read(feedRepositoryProvider)
-                        .toggleLike(post.id);
-                    ref.invalidate(feedProvider);
-                  },
+                CircleAvatar(
+                  radius: 20,
+                  backgroundImage: post.avatarUrl != null
+                      ? CachedNetworkImageProvider(post.avatarUrl!)
+                      : null,
+                  child: post.avatarUrl == null
+                      ? const Icon(Icons.person)
+                      : null,
                 ),
-                IconButton(
-                  icon: const Icon(Icons.comment),
-                  onPressed: () {
-                    showCommentsBottomSheet(context, post.id, ref);
-                  },
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    post.userName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Text(
+                  getTimeAgo(post.createdAt),
+                  style: const TextStyle(
+                      color: Colors.grey, fontSize: 12),
                 ),
               ],
-            )
+            ),
+
+            const SizedBox(height: 12),
+
+            /// CONTENT
+            Text(
+              post.content,
+              style: const TextStyle(color: Colors.white70),
+            ),
+
+            /// IMAGE
+            if (post.imageUrl != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: CachedNetworkImage(
+                    imageUrl: post.imageUrl!,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) =>
+                    const LinearProgressIndicator(),
+                    errorWidget: (_, __, ___) =>
+                    const Icon(Icons.broken_image),
+                  ),
+                ),
+              ),
+
+            const SizedBox(height: 12),
+
+            /// ACTIONS
+            Row(
+              children: [
+                GestureDetector(
+                  onTap: () async {
+                    await repo.toggleLike(post.id, ref);
+                  },
+                  child: Row(
+                    children: [
+                      Icon(
+                        post.isLiked
+                            ? Icons.favorite
+                            : Icons.favorite_border,
+                        color: post.isLiked
+                            ? Colors.red
+                            : Colors.white,
+                      ),
+                      const SizedBox(width: 6),
+                      Text("${post.likeCount}",
+                          style:
+                          const TextStyle(color: Colors.white)),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 20),
+
+                GestureDetector(
+                  onTap: () {
+                    showCommentsBottomSheet(
+                        context, post.id, ref);
+                  },
+                  child: Row(
+                    children: [
+                      const Icon(Icons.comment,
+                          color: Colors.white),
+                      const SizedBox(width: 6),
+                      Text("${post.commentCount}",
+                          style:
+                          const TextStyle(color: Colors.white)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -174,33 +351,9 @@ class _PostCard extends StatelessWidget {
   }
 }
 
-/// 🔥 FIXED BACKGROUND (WITH DISPOSE)
-class AnimatedGradientBackground extends StatefulWidget {
+/// ================= BACKGROUND =================
+class AnimatedGradientBackground extends StatelessWidget {
   const AnimatedGradientBackground({super.key});
-
-  @override
-  State<AnimatedGradientBackground> createState() =>
-      _AnimatedGradientBackgroundState();
-}
-
-class _AnimatedGradientBackgroundState
-    extends State<AnimatedGradientBackground>
-    with SingleTickerProviderStateMixin {
-  late AnimationController controller;
-
-  @override
-  void initState() {
-    super.initState();
-    controller =
-    AnimationController(vsync: this, duration: const Duration(seconds: 10))
-      ..repeat();
-  }
-
-  @override
-  void dispose() {
-    controller.dispose(); // 🔥 FIX
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -208,34 +361,11 @@ class _AnimatedGradientBackgroundState
   }
 }
 
-/// 🔥 FIXED PARTICLES (LIGHT VERSION)
-class NeonParticles extends StatefulWidget {
+class NeonParticles extends StatelessWidget {
   const NeonParticles({super.key});
 
   @override
-  State<NeonParticles> createState() => _NeonParticlesState();
-}
-
-class _NeonParticlesState extends State<NeonParticles>
-    with SingleTickerProviderStateMixin {
-  late AnimationController controller;
-
-  @override
-  void initState() {
-    super.initState();
-    controller =
-    AnimationController(vsync: this, duration: const Duration(seconds: 20))
-      ..repeat();
-  }
-
-  @override
-  void dispose() {
-    controller.dispose(); // 🔥 FIX
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return const SizedBox(); // 🔥 simplified
+    return const SizedBox();
   }
 }
