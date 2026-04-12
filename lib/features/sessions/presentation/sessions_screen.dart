@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:go_router/go_router.dart';
 
 import '../providers/session_provider.dart';
 import '../repository/session_repository.dart';
@@ -24,6 +26,11 @@ class SessionsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final sessionsAsync = ref.watch(sessionProvider);
 
+    /// 🔥 SAFE AUTO EXPIRY
+    Future.microtask(() {
+      ref.read(sessionRepositoryProvider).autoExpireSessions();
+    });
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -35,34 +42,34 @@ class SessionsScreen extends ConsumerWidget {
         data: (sessions) {
           if (sessions.isEmpty) {
             return const Center(
-              child: Text(
-                "No sessions yet",
-                style: TextStyle(color: Colors.white70),
-              ),
+              child: Text("No sessions yet",
+                  style: TextStyle(color: Colors.white70)),
             );
           }
 
-          final upcoming = sessions.where((s) => s['status'] == 'booked');
-          final completed = sessions.where((s) => s['status'] == 'completed');
-          final cancelled = sessions.where((s) => s['status'] == 'cancelled');
+          final upcoming =
+          sessions.where((s) => s['status'] == 'booked').toList();
+
+          final completed =
+          sessions.where((s) => s['status'] == 'completed').toList();
+
+          final cancelled =
+          sessions.where((s) => s['status'] == 'cancelled').toList();
 
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
 
-              /// 🔥 UPCOMING
               if (upcoming.isNotEmpty) ...[
                 const _SectionTitle("🟢 Upcoming"),
                 ...upcoming.map((s) => _SessionCard(s: s)),
               ],
 
-              /// 🔥 COMPLETED
               if (completed.isNotEmpty) ...[
                 const _SectionTitle("✅ Completed"),
                 ...completed.map((s) => _SessionCard(s: s)),
               ],
 
-              /// 🔥 CANCELLED
               if (cancelled.isNotEmpty) ...[
                 const _SectionTitle("❌ Cancelled"),
                 ...cancelled.map((s) => _SessionCard(s: s)),
@@ -75,17 +82,15 @@ class SessionsScreen extends ConsumerWidget {
         const Center(child: CircularProgressIndicator()),
 
         error: (e, _) => Center(
-          child: Text(
-            e.toString(),
-            style: const TextStyle(color: Colors.red),
-          ),
+          child: Text(e.toString(),
+              style: const TextStyle(color: Colors.red)),
         ),
       ),
     );
   }
 }
 
-/// 🔥 SECTION TITLE WIDGET
+/// ================= TITLE =================
 class _SectionTitle extends StatelessWidget {
   final String text;
   const _SectionTitle(this.text);
@@ -106,11 +111,28 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-/// 🔥 SESSION CARD (SEPARATED CLEAN ARCHITECTURE)
-class _SessionCard extends ConsumerWidget {
+/// ================= CARD =================
+class _SessionCard extends ConsumerStatefulWidget {
   final dynamic s;
-
   const _SessionCard({required this.s});
+
+  @override
+  ConsumerState<_SessionCard> createState() => _SessionCardState();
+}
+
+class _SessionCardState extends ConsumerState<_SessionCard> {
+  bool loading = false;
+
+  Future<void> openMeeting(String url) async {
+    final uri = Uri.parse(url);
+
+    if (!await launchUrl(uri,
+        mode: LaunchMode.externalApplication)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Could not open meeting")),
+      );
+    }
+  }
 
   String formatTime(String iso) {
     final dt = DateTime.tryParse(iso)?.toLocal();
@@ -125,14 +147,16 @@ class _SessionCard extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final repo = SessionRepository();
+    final s = widget.s;
+
     final currentUser =
         Supabase.instance.client.auth.currentUser!.id;
 
     final isTeacher = s['teacher_id'] == currentUser;
-
-    final userData = isTeacher ? s['student_data'] : s['teacher_data'];
+    final userData =
+    isTeacher ? s['student_data'] : s['teacher_data'];
 
     final String name = userData?['name'] ?? "User";
     final String? avatar = userData?['avatar_url'];
@@ -169,10 +193,13 @@ class _SessionCard extends ConsumerWidget {
 
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isTeacher ? "Student: $name" : "Teacher: $name",
+                      isTeacher
+                          ? "Student: $name"
+                          : "Teacher: $name",
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -181,7 +208,8 @@ class _SessionCard extends ConsumerWidget {
                     const SizedBox(height: 4),
                     Text(
                       s['skill'] ?? "Session",
-                      style: const TextStyle(color: Colors.white60),
+                      style:
+                      const TextStyle(color: Colors.white60),
                     ),
                   ],
                 ),
@@ -223,31 +251,55 @@ class _SessionCard extends ConsumerWidget {
             runSpacing: 10,
             children: [
 
-              /// CHAT
+              /// JOIN
+              if (s['meeting_url'] != null &&
+                  status == 'booked')
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.video_call),
+                  label: const Text("Join"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.cyan,
+                  ),
+                  onPressed: () =>
+                      openMeeting(s['meeting_url'].toString()),
+                ),
+
+              /// CHAT (FIXED)
               if (status == 'booked')
                 ElevatedButton.icon(
                   icon: const Icon(Icons.chat),
                   label: const Text("Chat"),
                   onPressed: () {
-                    Navigator.pushNamed(
-                      context,
-                      '/chat',
-                      arguments: s['id'],
-                    );
-                  },
+                    context.push('/chat/${s['id']}');                  },
                 ),
 
               /// COMPLETE
               if (isTeacher && status == 'booked')
                 ElevatedButton.icon(
                   icon: const Icon(Icons.check),
-                  label: const Text("Complete"),
-                  onPressed: () async {
+                  label: loading
+                      ? const Text("Processing...")
+                      : const Text("Complete"),
+                  onPressed: loading
+                      ? null
+                      : () async {
+                    setState(() => loading = true);
+
                     await repo.completeSession(s['id']);
                     ref.invalidate(sessionProvider);
 
-                    if (!context.mounted) return;
+                    setState(() => loading = false);
+
+                    if (!mounted) return;
+
                     _showRatingDialog(context, s['id']);
+
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(
+                      const SnackBar(
+                          content:
+                          Text("Session completed")),
+                    );
                   },
                 ),
 
@@ -259,9 +311,15 @@ class _SessionCard extends ConsumerWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.red,
                   ),
-                  onPressed: () async {
+                  onPressed: loading
+                      ? null
+                      : () async {
+                    setState(() => loading = true);
+
                     await repo.cancelSession(s['id']);
                     ref.invalidate(sessionProvider);
+
+                    setState(() => loading = false);
                   },
                 ),
             ],
@@ -271,7 +329,8 @@ class _SessionCard extends ConsumerWidget {
     );
   }
 
-  void _showRatingDialog(BuildContext context, String sessionId) {
+  void _showRatingDialog(
+      BuildContext context, String sessionId) {
     int rating = 5;
     final controller = TextEditingController();
 
@@ -280,10 +339,8 @@ class _SessionCard extends ConsumerWidget {
       builder: (_) {
         return AlertDialog(
           backgroundColor: Colors.black,
-          title: const Text(
-            "Rate Session",
-            style: TextStyle(color: Colors.white),
-          ),
+          title: const Text("Rate Session",
+              style: TextStyle(color: Colors.white)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -303,10 +360,12 @@ class _SessionCard extends ConsumerWidget {
               ),
               TextField(
                 controller: controller,
-                style: const TextStyle(color: Colors.white),
+                style:
+                const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
                   hintText: "Review",
-                  hintStyle: TextStyle(color: Colors.white54),
+                  hintStyle:
+                  TextStyle(color: Colors.white54),
                 ),
               ),
             ],

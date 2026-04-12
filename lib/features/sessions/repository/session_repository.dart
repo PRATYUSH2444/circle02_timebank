@@ -1,9 +1,16 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+/// 🔥 PROVIDER (FIXES YOUR ERROR)
+final sessionRepositoryProvider =
+Provider<SessionRepository>((ref) {
+  return SessionRepository();
+});
 
 class SessionRepository {
   final supabase = Supabase.instance.client;
 
-  /// 🟡 BOOK SESSION (SAFE + CORRECT)
+  /// 🟡 BOOK SESSION (SAFE + PRODUCTION READY)
   Future<void> bookSession({
     required String listingId,
     required String teacherId,
@@ -11,7 +18,9 @@ class SessionRepository {
     required DateTime slotTime,
     required int duration,
   }) async {
-    final user = supabase.auth.currentUser!;
+    final user = supabase.auth.currentUser;
+    if (user == null) throw Exception("User not logged in");
+
     final userId = user.id;
 
     /// 🚨 BLOCK SELF BOOKING
@@ -30,7 +39,7 @@ class SessionRepository {
       throw Exception("Not enough tokens");
     }
 
-    /// 🔍 CHECK SLOT (IMPORTANT)
+    /// 🔍 CHECK SLOT
     final slot = await supabase
         .from('listing_slots')
         .select()
@@ -44,7 +53,7 @@ class SessionRepository {
     final endTime = slotTime.add(Duration(minutes: duration));
 
     /// 🔥 CREATE SESSION
-    final session = await supabase.from('sessions').insert({
+    await supabase.from('sessions').insert({
       'listing_id': listingId,
       'teacher_id': teacherId,
       'student_id': userId,
@@ -53,19 +62,16 @@ class SessionRepository {
       'duration': duration,
       'status': 'booked',
       'token_status': 'held',
-    }).select().single();
+    });
 
-    /// 🔒 LOCK SLOT (USING ID — FIXED)
+    /// 🔒 LOCK SLOT
     await supabase
         .from('listing_slots')
         .update({'is_booked': true})
         .eq('id', slotId);
-
-    /// (OPTIONAL FUTURE)
-    /// deduct token here if needed
   }
 
-  /// ✅ COMPLETE SESSION → TRANSFER TOKENS
+  /// ✅ COMPLETE SESSION → TOKEN TRANSFER
   Future<void> completeSession(String sessionId) async {
     final session = await supabase
         .from('sessions')
@@ -74,10 +80,10 @@ class SessionRepository {
         .single();
 
     if (session['status'] != 'booked') {
-      throw Exception("Session not in valid state");
+      throw Exception("Session not valid for completion");
     }
 
-    /// 🔥 TOKEN TRANSFER
+    /// 🔥 TOKEN TRANSFER (RPC)
     await supabase.rpc('transfer_tokens', params: {
       'sender': session['student_id'],
       'receiver': session['teacher_id'],
@@ -89,7 +95,7 @@ class SessionRepository {
     }).eq('id', sessionId);
   }
 
-  /// 🔁 CANCEL SESSION (FIXED)
+  /// 🔁 CANCEL SESSION (SAFE)
   Future<void> cancelSession(String sessionId) async {
     final session = await supabase
         .from('sessions')
@@ -97,7 +103,7 @@ class SessionRepository {
         .eq('id', sessionId)
         .single();
 
-    /// 🔓 UNLOCK SLOT (FIXED USING SLOT ID MATCH)
+    /// 🔓 UNLOCK SLOT
     await supabase
         .from('listing_slots')
         .update({'is_booked': false})
@@ -125,5 +131,16 @@ class SessionRepository {
       'rating': rating,
       'review': review,
     }).eq('id', id);
+  }
+
+  /// ⚡ AUTO EXPIRE (IMPORTANT)
+  Future<void> autoExpireSessions() async {
+    final now = DateTime.now().toIso8601String();
+
+    await supabase
+        .from('sessions')
+        .update({'status': 'completed'})
+        .lt('end_time', now)
+        .eq('status', 'booked');
   }
 }
