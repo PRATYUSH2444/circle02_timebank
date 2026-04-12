@@ -1,195 +1,333 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import '../providers/session_provider.dart';
 import '../repository/session_repository.dart';
 
-class SessionsScreen extends StatefulWidget {
+class SessionsScreen extends ConsumerWidget {
   const SessionsScreen({super.key});
 
+  String formatTime(String iso) {
+    final dt = DateTime.tryParse(iso)?.toLocal();
+    if (dt == null) return "Invalid time";
+    return "${dt.day}/${dt.month} • ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}";
+  }
+
+  bool isExpired(String iso) {
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) return false;
+    return DateTime.now().isAfter(dt);
+  }
+
   @override
-  State<SessionsScreen> createState() => _SessionsScreenState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sessionsAsync = ref.watch(sessionProvider);
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text("Sessions"),
+        backgroundColor: Colors.transparent,
+      ),
+
+      body: sessionsAsync.when(
+        data: (sessions) {
+          if (sessions.isEmpty) {
+            return const Center(
+              child: Text(
+                "No sessions yet",
+                style: TextStyle(color: Colors.white70),
+              ),
+            );
+          }
+
+          final upcoming = sessions.where((s) => s['status'] == 'booked');
+          final completed = sessions.where((s) => s['status'] == 'completed');
+          final cancelled = sessions.where((s) => s['status'] == 'cancelled');
+
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+
+              /// 🔥 UPCOMING
+              if (upcoming.isNotEmpty) ...[
+                const _SectionTitle("🟢 Upcoming"),
+                ...upcoming.map((s) => _SessionCard(s: s)),
+              ],
+
+              /// 🔥 COMPLETED
+              if (completed.isNotEmpty) ...[
+                const _SectionTitle("✅ Completed"),
+                ...completed.map((s) => _SessionCard(s: s)),
+              ],
+
+              /// 🔥 CANCELLED
+              if (cancelled.isNotEmpty) ...[
+                const _SectionTitle("❌ Cancelled"),
+                ...cancelled.map((s) => _SessionCard(s: s)),
+              ],
+            ],
+          );
+        },
+
+        loading: () =>
+        const Center(child: CircularProgressIndicator()),
+
+        error: (e, _) => Center(
+          child: Text(
+            e.toString(),
+            style: const TextStyle(color: Colors.red),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _SessionsScreenState extends State<SessionsScreen>
-    with SingleTickerProviderStateMixin {
-  final supabase = Supabase.instance.client;
-  final repo = SessionRepository();
-
-  List sessions = [];
-  bool isLoading = true;
-
-  late TabController tabController;
-  late RealtimeChannel channel;
-
-  @override
-  void initState() {
-    super.initState();
-
-    tabController = TabController(length: 3, vsync: this);
-
-    fetch();
-
-    // 🔥 REALTIME FIXED
-    channel = supabase.channel('sessions_changes')
-      ..onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'sessions',
-        callback: (_) => fetch(),
-      )
-      ..subscribe();
-  }
-
-  @override
-  void dispose() {
-    channel.unsubscribe();
-    tabController.dispose();
-    super.dispose();
-  }
-
-  Future<void> fetch() async {
-    try {
-      final user = supabase.auth.currentUser;
-
-      final res = await supabase
-          .from('sessions')
-          .select()
-          .or('teacher_id.eq.${user!.id},student_id.eq.${user.id}')
-          .order('created_at', ascending: false);
-
-      if (!mounted) return;
-
-      setState(() {
-        sessions = res;
-        isLoading = false;
-      });
-    } catch (e) {
-      setState(() => isLoading = false);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: $e")),
-      );
-    }
-  }
-
-  String timeLeft(DateTime end) {
-    final diff = end.difference(DateTime.now());
-    if (diff.isNegative) return "Ended";
-    return "${diff.inMinutes} mins left";
-  }
+/// 🔥 SECTION TITLE WIDGET
+class _SectionTitle extends StatelessWidget {
+  final String text;
+  const _SectionTitle(this.text);
 
   @override
   Widget build(BuildContext context) {
-    final userId = supabase.auth.currentUser!.id;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Sessions"),
-
-        // 🔥 FIXED TAB BAR
-        bottom: TabBar(
-          controller: tabController,
-          tabs: const [
-            Tab(text: "Upcoming"),
-            Tab(text: "Completed"),
-            Tab(text: "Cancelled"),
-          ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10, top: 10),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
         ),
       ),
+    );
+  }
+}
 
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-        controller: tabController,
+/// 🔥 SESSION CARD (SEPARATED CLEAN ARCHITECTURE)
+class _SessionCard extends ConsumerWidget {
+  final dynamic s;
+
+  const _SessionCard({required this.s});
+
+  String formatTime(String iso) {
+    final dt = DateTime.tryParse(iso)?.toLocal();
+    if (dt == null) return "Invalid time";
+    return "${dt.day}/${dt.month} • ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}";
+  }
+
+  bool isExpired(String iso) {
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) return false;
+    return DateTime.now().isAfter(dt);
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final repo = SessionRepository();
+    final currentUser =
+        Supabase.instance.client.auth.currentUser!.id;
+
+    final isTeacher = s['teacher_id'] == currentUser;
+
+    final userData = isTeacher ? s['student_data'] : s['teacher_data'];
+
+    final String name = userData?['name'] ?? "User";
+    final String? avatar = userData?['avatar_url'];
+
+    final String status = s['status'] ?? 'unknown';
+    final String slotTime = s['slot_time'].toString();
+    final bool expired = isExpired(slotTime);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1A1A1A), Color(0xFF111111)],
+        ),
+        borderRadius: BorderRadius.circular(20),
+      ),
+
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          buildList("booked", userId),
-          buildList("completed", userId),
-          buildList("cancelled", userId),
+
+          /// HEADER
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundImage:
+                avatar != null ? NetworkImage(avatar) : null,
+                child:
+                avatar == null ? const Icon(Icons.person) : null,
+              ),
+              const SizedBox(width: 12),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isTeacher ? "Student: $name" : "Teacher: $name",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      s['skill'] ?? "Session",
+                      style: const TextStyle(color: Colors.white60),
+                    ),
+                  ],
+                ),
+              ),
+
+              Text(
+                status.toUpperCase(),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: status == 'completed'
+                      ? Colors.green
+                      : status == 'cancelled'
+                      ? Colors.red
+                      : Colors.orange,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          /// TIME
+          Text(
+            "🕒 ${formatTime(slotTime)}",
+            style: const TextStyle(color: Colors.white70),
+          ),
+
+          if (expired && status == 'booked')
+            const Text(
+              "⚠️ Session expired",
+              style: TextStyle(color: Colors.redAccent),
+            ),
+
+          const SizedBox(height: 12),
+
+          /// ACTIONS
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+
+              /// CHAT
+              if (status == 'booked')
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.chat),
+                  label: const Text("Chat"),
+                  onPressed: () {
+                    Navigator.pushNamed(
+                      context,
+                      '/chat',
+                      arguments: s['id'],
+                    );
+                  },
+                ),
+
+              /// COMPLETE
+              if (isTeacher && status == 'booked')
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.check),
+                  label: const Text("Complete"),
+                  onPressed: () async {
+                    await repo.completeSession(s['id']);
+                    ref.invalidate(sessionProvider);
+
+                    if (!context.mounted) return;
+                    _showRatingDialog(context, s['id']);
+                  },
+                ),
+
+              /// CANCEL
+              if (status == 'booked')
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.cancel),
+                  label: const Text("Cancel"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                  ),
+                  onPressed: () async {
+                    await repo.cancelSession(s['id']);
+                    ref.invalidate(sessionProvider);
+                  },
+                ),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  Widget buildList(String status, String userId) {
-    final list = sessions.where((e) => e['status'] == status).toList();
+  void _showRatingDialog(BuildContext context, String sessionId) {
+    int rating = 5;
+    final controller = TextEditingController();
 
-    if (list.isEmpty) {
-      return const Center(
-        child: Text("No sessions",
-            style: TextStyle(color: Colors.white70)),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: fetch,
-      child: ListView.builder(
-        itemCount: list.length,
-        itemBuilder: (_, i) {
-          final s = list[i];
-
-          final isTeacher = s['teacher_id'] == userId;
-          final time = DateTime.parse(s['slot_time']);
-          final end = DateTime.parse(s['end_time']);
-
-          return Card(
-            margin: const EdgeInsets.all(10),
-            child: ListTile(
-              title: Text(
-                "${time.day}/${time.month} ${time.hour}:${time.minute.toString().padLeft(2, '0')}",
+    showDialog(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          backgroundColor: Colors.black,
+          title: const Text(
+            "Rate Session",
+            style: TextStyle(color: Colors.white),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              StatefulBuilder(
+                builder: (context, setState) {
+                  return Slider(
+                    value: rating.toDouble(),
+                    min: 1,
+                    max: 5,
+                    divisions: 4,
+                    label: "$rating",
+                    onChanged: (val) {
+                      setState(() => rating = val.toInt());
+                    },
+                  );
+                },
               ),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(timeLeft(end)),
-                  Text(isTeacher
-                      ? "Teaching"
-                      : "Learning"),
-                ],
+              TextField(
+                controller: controller,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  hintText: "Review",
+                  hintStyle: TextStyle(color: Colors.white54),
+                ),
               ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await SessionRepository().rateSession(
+                  sessionId,
+                  rating,
+                  controller.text,
+                );
 
-              trailing: Wrap(
-                spacing: 8,
-                children: [
-                  if (s['meeting_url'] != null)
-                    IconButton(
-                      icon: const Icon(Icons.video_call),
-                      onPressed: () {
-                        launchUrl(Uri.parse(s['meeting_url']));
-                      },
-                    ),
-
-                  if (status == "booked" && isTeacher)
-                    IconButton(
-                      icon: const Icon(Icons.check, color: Colors.green),
-                      onPressed: () async {
-                        await repo.completeSession(s['id']);
-                        fetch();
-
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("Session completed")),
-                        );
-                      },
-                    ),
-
-                  if (status == "booked")
-                    IconButton(
-                      icon: const Icon(Icons.cancel, color: Colors.red),
-                      onPressed: () async {
-                        await repo.cancelSession(s['id']);
-                        fetch();
-
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("Session cancelled")),
-                        );
-                      },
-                    ),
-                ],
-              ),
+                if (!context.mounted) return;
+                Navigator.pop(context);
+              },
+              child: const Text("Submit"),
             ),
-          );
-        },
-      ),
+          ],
+        );
+      },
     );
   }
 }
