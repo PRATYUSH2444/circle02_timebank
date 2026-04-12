@@ -6,81 +6,99 @@ import 'package:go_router/go_router.dart';
 
 import '../providers/session_provider.dart';
 import '../repository/session_repository.dart';
+import '../../../utils/time_utils.dart';
+
+// ─── Sessions screen ──────────────────────────────────────────────────────────
 
 class SessionsScreen extends ConsumerWidget {
   const SessionsScreen({super.key});
-
-  String formatTime(String iso) {
-    final dt = DateTime.tryParse(iso)?.toLocal();
-    if (dt == null) return "Invalid time";
-    return "${dt.day}/${dt.month} • ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}";
-  }
-
-  bool isExpired(String iso) {
-    final dt = DateTime.tryParse(iso);
-    if (dt == null) return false;
-    return DateTime.now().isAfter(dt);
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sessionsAsync = ref.watch(sessionProvider);
 
-    /// 🔥 SAFE AUTO EXPIRY
     Future.microtask(() {
       ref.read(sessionRepositoryProvider).autoExpireSessions();
     });
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF0A0A0A),
       appBar: AppBar(
-        title: const Text("Sessions"),
-        backgroundColor: Colors.transparent,
+        backgroundColor: const Color(0xFF0A0A0A),
+        elevation: 0,
+        title: const Text("Sessions",
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.bold)),
       ),
-
       body: sessionsAsync.when(
         data: (sessions) {
           if (sessions.isEmpty) {
-            return const Center(
-              child: Text("No sessions yet",
-                  style: TextStyle(color: Colors.white70)),
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.calendar_today_outlined,
+                      color: Colors.white24, size: 52),
+                  SizedBox(height: 14),
+                  Text("No sessions yet\nBook a session to get started 🚀",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white38, height: 1.6)),
+                ],
+              ),
             );
           }
 
           final upcoming =
           sessions.where((s) => s['status'] == 'booked').toList();
-
           final completed =
           sessions.where((s) => s['status'] == 'completed').toList();
-
           final cancelled =
           sessions.where((s) => s['status'] == 'cancelled').toList();
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-
-              if (upcoming.isNotEmpty) ...[
-                const _SectionTitle("🟢 Upcoming"),
-                ...upcoming.map((s) => _SessionCard(s: s)),
+          return RefreshIndicator(
+            color: Colors.cyan,
+            backgroundColor: const Color(0xFF1A1A1A),
+            onRefresh: () async => ref.invalidate(sessionProvider),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+              children: [
+                if (upcoming.isNotEmpty) ...[
+                  _SectionHeader(
+                      icon: Icons.circle,
+                      iconColor: Colors.greenAccent,
+                      label: "Upcoming",
+                      count: upcoming.length),
+                  ...upcoming.map((s) => _SessionCard(s: s)),
+                  const SizedBox(height: 8),
+                ],
+                if (completed.isNotEmpty) ...[
+                  _SectionHeader(
+                      icon: Icons.check_circle,
+                      iconColor: Colors.green,
+                      label: "Completed",
+                      count: completed.length),
+                  ...completed.map((s) => _SessionCard(s: s)),
+                  const SizedBox(height: 8),
+                ],
+                if (cancelled.isNotEmpty) ...[
+                  _SectionHeader(
+                      icon: Icons.cancel,
+                      iconColor: Colors.redAccent,
+                      label: "Cancelled",
+                      count: cancelled.length),
+                  ...cancelled.map((s) => _SessionCard(s: s)),
+                ],
               ],
-
-              if (completed.isNotEmpty) ...[
-                const _SectionTitle("✅ Completed"),
-                ...completed.map((s) => _SessionCard(s: s)),
-              ],
-
-              if (cancelled.isNotEmpty) ...[
-                const _SectionTitle("❌ Cancelled"),
-                ...cancelled.map((s) => _SessionCard(s: s)),
-              ],
-            ],
+            ),
           );
         },
-
-        loading: () =>
-        const Center(child: CircularProgressIndicator()),
-
+        loading: () => ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: 3,
+          itemBuilder: (_, __) => const _SessionSkeleton(),
+        ),
         error: (e, _) => Center(
           child: Text(e.toString(),
               style: const TextStyle(color: Colors.red)),
@@ -90,28 +108,109 @@ class SessionsScreen extends ConsumerWidget {
   }
 }
 
-/// ================= TITLE =================
-class _SectionTitle extends StatelessWidget {
-  final String text;
-  const _SectionTitle(this.text);
+// ─── Section header ───────────────────────────────────────────────────────────
+
+class _SectionHeader extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final int count;
+
+  const _SectionHeader({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.count,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10, top: 10),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-        ),
+      padding: const EdgeInsets.only(top: 16, bottom: 10),
+      child: Row(
+        children: [
+          Icon(icon, color: iconColor, size: 16),
+          const SizedBox(width: 8),
+          Text(label,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(width: 8),
+          Container(
+            padding:
+            const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.white10,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text("$count",
+                style: const TextStyle(
+                    color: Colors.white54, fontSize: 11)),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// ================= CARD =================
+// ─── Session skeleton ─────────────────────────────────────────────────────────
+
+class _SessionSkeleton extends StatelessWidget {
+  const _SessionSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161616),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+                width: 48,
+                height: 48,
+                decoration: const BoxDecoration(
+                    color: Color(0xFF2A2A2A), shape: BoxShape.circle)),
+            const SizedBox(width: 12),
+            Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                      width: 140,
+                      height: 12,
+                      decoration: BoxDecoration(
+                          color: const Color(0xFF2A2A2A),
+                          borderRadius: BorderRadius.circular(6))),
+                  const SizedBox(height: 6),
+                  Container(
+                      width: 90,
+                      height: 10,
+                      decoration: BoxDecoration(
+                          color: const Color(0xFF2A2A2A),
+                          borderRadius: BorderRadius.circular(6))),
+                ]),
+          ]),
+          const SizedBox(height: 14),
+          Container(
+              height: 10,
+              width: 160,
+              decoration: BoxDecoration(
+                  color: const Color(0xFF2A2A2A),
+                  borderRadius: BorderRadius.circular(6))),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Session card ─────────────────────────────────────────────────────────────
+
 class _SessionCard extends ConsumerStatefulWidget {
   final dynamic s;
   const _SessionCard({required this.s});
@@ -123,28 +222,212 @@ class _SessionCard extends ConsumerStatefulWidget {
 class _SessionCardState extends ConsumerState<_SessionCard> {
   bool loading = false;
 
-  Future<void> openMeeting(String url) async {
-    final uri = Uri.parse(url);
+  // ─── Open meeting URL ──────────────────────────────────────────────────────
 
-    if (!await launchUrl(uri,
-        mode: LaunchMode.externalApplication)) {
+  Future<void> _openMeeting(String url) async {
+    try {
+      final uri = Uri.parse(url.trim());
+      if (!uri.hasScheme) {
+        // add https if missing
+        final fixedUri = Uri.parse('https://$url');
+        await launchUrl(fixedUri, mode: LaunchMode.externalApplication);
+        return;
+      }
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Could not open link. Check the URL."),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Could not open meeting")),
+        SnackBar(
+          content: Text("Invalid link: $e"),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }
 
-  String formatTime(String iso) {
-    final dt = DateTime.tryParse(iso)?.toLocal();
-    if (dt == null) return "Invalid time";
-    return "${dt.day}/${dt.month} • ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}";
+  // ─── Add meeting link dialog ───────────────────────────────────────────────
+
+  void _showAddLinkDialog(String sessionId) {
+    final ctrl = TextEditingController(
+      // pre-fill if link already exists
+      text: widget.s['meeting_url']?.toString() ?? '',
+    );
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20)),
+        title: const Text("Meeting Link",
+            style: TextStyle(
+                color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Paste your Zoom, Google Meet, or any video call link below.",
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              style: const TextStyle(color: Colors.white),
+              keyboardType: TextInputType.url,
+              decoration: InputDecoration(
+                hintText: "https://meet.google.com/...",
+                hintStyle: const TextStyle(color: Colors.white38),
+                prefixIcon: const Icon(Icons.link, color: Colors.cyan),
+                filled: true,
+                fillColor: const Color(0xFF2A2A2A),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel",
+                style: TextStyle(color: Colors.white38)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.cyan,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () async {
+              final url = ctrl.text.trim();
+              if (url.isEmpty) return;
+
+              await SessionRepository()
+                  .addMeetingLink(sessionId, url);
+
+              if (!mounted) return;
+              Navigator.pop(context);
+
+              // refresh sessions
+              ref.invalidate(sessionProvider);
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("Meeting link saved ✅"),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            },
+            child: const Text("Save",
+                style: TextStyle(
+                    color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
-  bool isExpired(String iso) {
-    final dt = DateTime.tryParse(iso);
-    if (dt == null) return false;
-    return DateTime.now().isAfter(dt);
+  // ─── Rating dialog ────────────────────────────────────────────────────────
+
+  void _showRatingDialog(String sessionId) {
+    int rating = 5;
+    final ctrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20)),
+        title: const Text("Rate this session",
+            style: TextStyle(
+                color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            StatefulBuilder(
+              builder: (context, ss) => Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(5, (i) {
+                      return GestureDetector(
+                        onTap: () => ss(() => rating = i + 1),
+                        child: Icon(
+                          i < rating
+                              ? Icons.star_rounded
+                              : Icons.star_outline_rounded,
+                          color: Colors.amber,
+                          size: 36,
+                        ),
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 4),
+                  Text("$rating / 5",
+                      style: const TextStyle(
+                          color: Colors.white54, fontSize: 12)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              style: const TextStyle(color: Colors.white),
+              maxLines: 2,
+              decoration: InputDecoration(
+                hintText: "Leave a review (optional)",
+                hintStyle: const TextStyle(color: Colors.white38),
+                filled: true,
+                fillColor: const Color(0xFF2A2A2A),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Skip",
+                style: TextStyle(color: Colors.white38)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.cyan,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () async {
+              await SessionRepository()
+                  .rateSession(sessionId, rating, ctrl.text);
+              if (!context.mounted) return;
+              Navigator.pop(context);
+            },
+            child: const Text("Submit",
+                style: TextStyle(
+                    color: Colors.black,
+                    fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
+
+  // ─── Build ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -153,240 +436,438 @@ class _SessionCardState extends ConsumerState<_SessionCard> {
 
     final currentUser =
         Supabase.instance.client.auth.currentUser!.id;
-
     final isTeacher = s['teacher_id'] == currentUser;
+    final isStudent = s['student_id'] == currentUser;
+
     final userData =
     isTeacher ? s['student_data'] : s['teacher_data'];
-
     final String name = userData?['name'] ?? "User";
     final String? avatar = userData?['avatar_url'];
 
     final String status = s['status'] ?? 'unknown';
-    final String slotTime = s['slot_time'].toString();
-    final bool expired = isExpired(slotTime);
+    final String? slotTime = s['slot_time']?.toString();
+    final String? endTime = s['end_time']?.toString();
+
+    // ── Time calculations ──────────────────────────────────────────────
+    final now = DateTime.now();
+
+    DateTime? slotDt;
+    DateTime? endDt;
+
+    try {
+      slotDt = slotTime != null
+          ? DateTime.parse(slotTime).toLocal()
+          : null;
+      endDt = endTime != null
+          ? DateTime.parse(endTime).toLocal()
+          : null;
+    } catch (_) {}
+
+    // Session is "live" from 10 min before start until 15 min after end
+    final isLive = slotDt != null &&
+        endDt != null &&
+        now.isAfter(
+            slotDt.subtract(const Duration(minutes: 10))) &&
+        now.isBefore(endDt.add(const Duration(minutes: 15)));
+
+    final isExpired = endDt != null && now.isAfter(endDt);
+
+    // Meeting link validation
+    final meetingUrl = s['meeting_url']?.toString() ?? '';
+    final hasLink = meetingUrl.isNotEmpty;
+
+    // Only teacher or student of this session can join
+    final canJoin = (isTeacher || isStudent) &&
+        status == 'booked' &&
+        hasLink &&
+        isLive;
+
+    final String timeLabel = slotTime != null
+        ? "${TimeUtils.formatDateLabel(slotTime)} • ${TimeUtils.formatClock(slotTime)}"
+        : "—";
+
+    Color statusColor = status == 'completed'
+        ? Colors.greenAccent
+        : status == 'cancelled'
+        ? Colors.redAccent
+        : Colors.orange;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1A1A1A), Color(0xFF111111)],
-        ),
+        color: const Color(0xFF161616),
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          // glow border when live
+          color: isLive
+              ? Colors.greenAccent.withOpacity(0.4)
+              : Colors.white10,
+          width: isLive ? 1 : 0.5,
+        ),
       ),
-
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-
-          /// HEADER
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundImage:
-                avatar != null ? NetworkImage(avatar) : null,
-                child:
-                avatar == null ? const Icon(Icons.person) : null,
-              ),
-              const SizedBox(width: 12),
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment:
-                  CrossAxisAlignment.start,
+          // ── Header ──────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Stack(
                   children: [
-                    Text(
-                      isTeacher
-                          ? "Student: $name"
-                          : "Teacher: $name",
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
+                    CircleAvatar(
+                      radius: 26,
+                      backgroundImage: avatar != null
+                          ? NetworkImage(avatar)
+                          : null,
+                      backgroundColor:
+                      Colors.cyan.withOpacity(0.15),
+                      child: avatar == null
+                          ? Text(name[0].toUpperCase(),
+                          style: const TextStyle(
+                              color: Colors.cyan,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18))
+                          : null,
+                    ),
+                    if (status == 'booked')
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: isLive
+                                ? Colors.greenAccent
+                                : Colors.orange,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                                color: const Color(0xFF161616),
+                                width: 2),
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      s['skill'] ?? "Session",
-                      style:
-                      const TextStyle(color: Colors.white60),
-                    ),
                   ],
                 ),
-              ),
-
-              Text(
-                status.toUpperCase(),
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: status == 'completed'
-                      ? Colors.green
-                      : status == 'cancelled'
-                      ? Colors.red
-                      : Colors.orange,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isTeacher
+                            ? "Student: $name"
+                            : "Teacher: $name",
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14),
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          const Icon(Icons.school_outlined,
+                              color: Colors.white38, size: 13),
+                          const SizedBox(width: 4),
+                          Text(s['skill'] ?? "Session",
+                              style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 12)),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 12),
-
-          /// TIME
-          Text(
-            "🕒 ${formatTime(slotTime)}",
-            style: const TextStyle(color: Colors.white70),
-          ),
-
-          if (expired && status == 'booked')
-            const Text(
-              "⚠️ Session expired",
-              style: TextStyle(color: Colors.redAccent),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                        color: statusColor.withOpacity(0.3),
+                        width: 0.5),
+                  ),
+                  child: Text(
+                    status.toUpperCase(),
+                    style: TextStyle(
+                        color: statusColor,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
             ),
-
-          const SizedBox(height: 12),
-
-          /// ACTIONS
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-
-              /// JOIN
-              if (s['meeting_url'] != null &&
-                  status == 'booked')
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.video_call),
-                  label: const Text("Join"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.cyan,
-                  ),
-                  onPressed: () =>
-                      openMeeting(s['meeting_url'].toString()),
-                ),
-
-              /// CHAT (FIXED)
-              if (status == 'booked')
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.chat),
-                  label: const Text("Chat"),
-                  onPressed: () {
-                    context.push('/chat/${s['id']}');                  },
-                ),
-
-              /// COMPLETE
-              if (isTeacher && status == 'booked')
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.check),
-                  label: loading
-                      ? const Text("Processing...")
-                      : const Text("Complete"),
-                  onPressed: loading
-                      ? null
-                      : () async {
-                    setState(() => loading = true);
-
-                    await repo.completeSession(s['id']);
-                    ref.invalidate(sessionProvider);
-
-                    setState(() => loading = false);
-
-                    if (!mounted) return;
-
-                    _showRatingDialog(context, s['id']);
-
-                    ScaffoldMessenger.of(context)
-                        .showSnackBar(
-                      const SnackBar(
-                          content:
-                          Text("Session completed")),
-                    );
-                  },
-                ),
-
-              /// CANCEL
-              if (status == 'booked')
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.cancel),
-                  label: const Text("Cancel"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                  ),
-                  onPressed: loading
-                      ? null
-                      : () async {
-                    setState(() => loading = true);
-
-                    await repo.cancelSession(s['id']);
-                    ref.invalidate(sessionProvider);
-
-                    setState(() => loading = false);
-                  },
-                ),
-            ],
           ),
+
+          // ── Time + live status row ───────────────────────────────────
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: isLive
+                  ? Colors.greenAccent.withOpacity(0.06)
+                  : Colors.white.withOpacity(0.04),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.schedule,
+                    color: isLive ? Colors.greenAccent : Colors.cyan,
+                    size: 16),
+                const SizedBox(width: 8),
+                Text(timeLabel,
+                    style: const TextStyle(
+                        color: Colors.white70, fontSize: 13)),
+                const Spacer(),
+                if (status == 'booked') ...[
+                  if (isLive) ...[
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: const BoxDecoration(
+                          color: Colors.greenAccent,
+                          shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 5),
+                    const Text("Live now",
+                        style: TextStyle(
+                            color: Colors.greenAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold)),
+                  ] else if (isExpired) ...[
+                    const Icon(Icons.warning_amber_rounded,
+                        color: Colors.redAccent, size: 14),
+                    const SizedBox(width: 4),
+                    const Text("Expired",
+                        style: TextStyle(
+                            color: Colors.redAccent, fontSize: 11)),
+                  ] else ...[
+                    const Icon(Icons.hourglass_empty_rounded,
+                        color: Colors.orange, size: 14),
+                    const SizedBox(width: 4),
+                    const Text("Upcoming",
+                        style: TextStyle(
+                            color: Colors.orange, fontSize: 11)),
+                  ],
+                ],
+              ],
+            ),
+          ),
+
+          // ── Meeting link status (teacher sees add/edit) ──────────────
+          if (status == 'booked') ...[
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: GestureDetector(
+                onTap: isTeacher
+                    ? () => _showAddLinkDialog(s['id'])
+                    : null,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: hasLink
+                        ? Colors.cyan.withOpacity(0.06)
+                        : Colors.white.withOpacity(0.03),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: hasLink
+                          ? Colors.cyan.withOpacity(0.25)
+                          : Colors.white12,
+                      width: 0.5,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        hasLink
+                            ? Icons.link_rounded
+                            : Icons.link_off_rounded,
+                        color:
+                        hasLink ? Colors.cyan : Colors.white38,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          hasLink
+                              ? meetingUrl
+                              : isTeacher
+                              ? "Tap to add meeting link"
+                              : "No meeting link yet",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: hasLink
+                                ? Colors.cyan
+                                : Colors.white38,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      if (isTeacher)
+                        Icon(
+                          hasLink ? Icons.edit_rounded : Icons.add,
+                          color: Colors.white38,
+                          size: 14,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+
+          // ── Actions ───────────────────────────────────────────────────
+          if (status == 'booked')
+            Padding(
+              padding:
+              const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: Row(
+                children: [
+                  // JOIN — shown to both teacher and student
+                  // enabled only when live + has link
+                  Expanded(
+                    child: _ActionBtn(
+                      label: "Join",
+                      icon: Icons.video_call_rounded,
+                      color: Colors.greenAccent,
+                      onTap: canJoin
+                          ? () => _openMeeting(meetingUrl)
+                          : null,
+                      tooltip: !hasLink
+                          ? "No link added yet"
+                          : !isLive
+                          ? "Available 10 min before start"
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // CHAT
+                  Expanded(
+                    child: _ActionBtn(
+                      label: "Chat",
+                      icon: Icons.chat_rounded,
+                      color: Colors.blueAccent,
+                      onTap: () =>
+                          context.push('/chat/${s['id']}'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // COMPLETE — teacher only
+                  if (isTeacher) ...[
+                    Expanded(
+                      child: _ActionBtn(
+                        label: loading ? "..." : "Complete",
+                        icon: Icons.check_circle_outline,
+                        color: Colors.green,
+                        onTap: loading
+                            ? null
+                            : () async {
+                          setState(() => loading = true);
+                          await repo
+                              .completeSession(s['id']);
+                          ref.invalidate(sessionProvider);
+                          setState(() => loading = false);
+                          if (!mounted) return;
+                          _showRatingDialog(s['id']);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+
+                  // CANCEL
+                  _ActionBtn(
+                    label: "Cancel",
+                    icon: Icons.close_rounded,
+                    color: Colors.redAccent,
+                    onTap: loading
+                        ? null
+                        : () async {
+                      setState(() => loading = true);
+                      await repo.cancelSession(s['id']);
+                      ref.invalidate(sessionProvider);
+                      setState(() => loading = false);
+                    },
+                  ),
+                ],
+              ),
+            )
+          else
+            const SizedBox(height: 16),
         ],
       ),
     );
   }
+}
 
-  void _showRatingDialog(
-      BuildContext context, String sessionId) {
-    int rating = 5;
-    final controller = TextEditingController();
+// ─── Action button ────────────────────────────────────────────────────────────
 
-    showDialog(
-      context: context,
-      builder: (_) {
-        return AlertDialog(
-          backgroundColor: Colors.black,
-          title: const Text("Rate Session",
-              style: TextStyle(color: Colors.white)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              StatefulBuilder(
-                builder: (context, setState) {
-                  return Slider(
-                    value: rating.toDouble(),
-                    min: 1,
-                    max: 5,
-                    divisions: 4,
-                    label: "$rating",
-                    onChanged: (val) {
-                      setState(() => rating = val.toInt());
-                    },
-                  );
-                },
-              ),
-              TextField(
-                controller: controller,
-                style:
-                const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  hintText: "Review",
-                  hintStyle:
-                  TextStyle(color: Colors.white54),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                await SessionRepository().rateSession(
-                  sessionId,
-                  rating,
-                  controller.text,
-                );
+class _ActionBtn extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onTap;
+  final String? tooltip;
 
-                if (!context.mounted) return;
-                Navigator.pop(context);
-              },
-              child: const Text("Submit"),
-            ),
+  const _ActionBtn({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+    this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onTap == null;
+    final btn = GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 9),
+        decoration: BoxDecoration(
+          color: disabled
+              ? Colors.white10
+              : color.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+              color: disabled
+                  ? Colors.white10
+                  : color.withOpacity(0.3),
+              width: 0.5),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon,
+                color: disabled ? Colors.white24 : color,
+                size: 20),
+            const SizedBox(height: 3),
+            Text(label,
+                style: TextStyle(
+                    color: disabled ? Colors.white24 : color,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600)),
           ],
-        );
-      },
+        ),
+      ),
     );
+
+    if (tooltip != null && disabled) {
+      return Expanded(
+        child: Tooltip(
+          message: tooltip!,
+          child: btn,
+        ),
+      );
+    }
+
+    return btn;
   }
 }
