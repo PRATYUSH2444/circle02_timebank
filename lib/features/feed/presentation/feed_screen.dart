@@ -196,6 +196,7 @@ class FeedScreen extends ConsumerWidget {
       ),
 
       floatingActionButton: FloatingActionButton(
+        heroTag: "feed_fab",           // ✅ FIX — unique heroTag
         backgroundColor: Colors.cyanAccent,
         onPressed: () {
           showDialog(

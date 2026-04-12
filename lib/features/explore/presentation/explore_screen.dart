@@ -57,7 +57,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
     });
   }
 
-  /// 🔥 MODERN SLOT UI
   void openSlots(ListingModel l) {
     final currentUserId =
         Supabase.instance.client.auth.currentUser!.id;
@@ -223,7 +222,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
     );
   }
 
-  /// 🔥 MODERN CARD
   Widget buildCard(ListingModel l) {
     return GestureDetector(
       onTap: () => openSlots(l),
@@ -299,6 +297,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       ),
 
       floatingActionButton: FloatingActionButton(
+        heroTag: "explore_fab",          // ✅ FIX — unique heroTag
         backgroundColor: Colors.cyan,
         onPressed: () async {
           final result = await Navigator.push(
