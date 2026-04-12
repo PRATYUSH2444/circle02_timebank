@@ -57,12 +57,18 @@ class _ExploreScreenState extends State<ExploreScreen> {
     });
   }
 
-  /// 🔥 SLOT UI (UPGRADED)
+  /// 🔥 MODERN SLOT UI
   void openSlots(ListingModel l) {
+    final currentUserId =
+        Supabase.instance.client.auth.currentUser!.id;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.black,
       isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (_) {
         return FutureBuilder(
           future: repo.getSlots(l.id),
@@ -75,83 +81,139 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
             return Padding(
               padding: const EdgeInsets.all(16),
-              child: ListView(
-                shrinkWrap: true,
+              child: Column(
                 children: [
-                  Text(
-                    l.skill,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold),
-                  ),
 
-                  const SizedBox(height: 10),
-
-                  Text(
-                    "${l.level} • ${l.duration} mins",
-                    style: const TextStyle(color: Colors.white70),
+                  /// HEADER
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 24,
+                        backgroundColor: Colors.cyan,
+                        child: Text(
+                          l.skill[0],
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(l.skill,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold)),
+                          Text("by ${l.mentorName}",
+                              style:
+                              const TextStyle(color: Colors.white70)),
+                        ],
+                      )
+                    ],
                   ),
 
                   const SizedBox(height: 20),
 
-                  if (slots.isEmpty)
-                    const Text("No slots available",
-                        style: TextStyle(color: Colors.white)),
-
-                  ...slots.map((s) {
-                    final time = DateTime.parse(s['slot_time']);
-                    final isBooked = s['is_booked'] ?? false;
-
-                    return Card(
-                      color: isBooked ? Colors.grey[800] : Colors.grey[900],
-                      child: ListTile(
-                        title: Text(
-                          "${time.day}/${time.month} ${time.hour}:${time.minute.toString().padLeft(2, '0')}",
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                        subtitle: Text(
-                          isBooked ? "Booked" : "Available",
-                          style: TextStyle(
-                            color: isBooked
-                                ? Colors.red
-                                : Colors.green,
-                          ),
-                        ),
-                        trailing: Icon(
-                          isBooked
-                              ? Icons.lock
-                              : Icons.lock_open,
-                          color: isBooked
-                              ? Colors.red
-                              : Colors.green,
-                        ),
-
-                        onTap: isBooked
-                            ? null
-                            : () async {
-                          await sessionRepo.bookSession(
-                            listingId: l.id,
-                            teacherId: l.mentorId,
-                            slotId: s['id'],
-                            slotTime: time,
-                            duration: l.duration,
-                          );
-
-                          if (!mounted) return;
-
-                          Navigator.pop(context);
-
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text("Session booked 🎉")),
-                          );
-
-                          fetch();
-                        },
+                  /// SLOT LIST
+                  Expanded(
+                    child: slots.isEmpty
+                        ? const Center(
+                      child: Text(
+                        "No slots available",
+                        style: TextStyle(color: Colors.white70),
                       ),
-                    );
-                  }).toList(),
+                    )
+                        : ListView.builder(
+                      itemCount: slots.length,
+                      itemBuilder: (_, i) {
+                        final s = slots[i];
+                        final time =
+                        DateTime.parse(s['slot_time']);
+                        final isBooked =
+                            s['is_booked'] ?? false;
+
+                        final isOwner =
+                            currentUserId == l.mentorId;
+
+                        return Container(
+                          margin:
+                          const EdgeInsets.only(bottom: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[900],
+                            borderRadius:
+                            BorderRadius.circular(14),
+                          ),
+                          child: ListTile(
+                            title: Text(
+                              "${time.day}/${time.month} • ${time.hour}:${time.minute.toString().padLeft(2, '0')}",
+                              style: const TextStyle(
+                                  color: Colors.white),
+                            ),
+
+                            subtitle: Text(
+                              isOwner
+                                  ? "Your listing"
+                                  : isBooked
+                                  ? "Booked"
+                                  : "Available",
+                              style: TextStyle(
+                                color: isOwner
+                                    ? Colors.orange
+                                    : isBooked
+                                    ? Colors.red
+                                    : Colors.green,
+                              ),
+                            ),
+
+                            trailing: isOwner
+                                ? const Icon(Icons.person,
+                                color: Colors.orange)
+                                : isBooked
+                                ? const Icon(Icons.lock,
+                                color: Colors.red)
+                                : ElevatedButton(
+                              onPressed: () async {
+                                await sessionRepo
+                                    .bookSession(
+                                  listingId: l.id,
+                                  teacherId:
+                                  l.mentorId,
+                                  slotId: s['id'],
+                                  slotTime: time,
+                                  duration:
+                                  l.duration,
+                                );
+
+                                if (!mounted) return;
+
+                                Navigator.pop(context);
+
+                                ScaffoldMessenger.of(
+                                    context)
+                                    .showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                        "Session booked 🎉"),
+                                  ),
+                                );
+
+                                fetch();
+                              },
+                              style: ElevatedButton
+                                  .styleFrom(
+                                backgroundColor:
+                                Colors.cyan,
+                              ),
+                              child:
+                              const Text("Book"),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                 ],
               ),
             );
@@ -161,17 +223,83 @@ class _ExploreScreenState extends State<ExploreScreen> {
     );
   }
 
+  /// 🔥 MODERN CARD
+  Widget buildCard(ListingModel l) {
+    return GestureDetector(
+      onTap: () => openSlots(l),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.grey[900],
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.4),
+              blurRadius: 10,
+            )
+          ],
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 24,
+              backgroundColor: Colors.cyan,
+              child: Text(
+                l.skill[0],
+                style: const TextStyle(color: Colors.black),
+              ),
+            ),
+
+            const SizedBox(width: 14),
+
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(l.skill,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold)),
+                  Text("👤 ${l.mentorName}",
+                      style:
+                      const TextStyle(color: Colors.white70)),
+                  Text("${l.level} • ${l.duration} mins",
+                      style:
+                      const TextStyle(color: Colors.white60)),
+                  Text("Slots: ${l.totalSlots}",
+                      style: const TextStyle(
+                          color: Colors.cyanAccent)),
+                ],
+              ),
+            ),
+
+            const Icon(Icons.arrow_forward,
+                color: Colors.white),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final userId =
+        Supabase.instance.client.auth.currentUser?.id;
 
     final myListings =
     listings.where((e) => e.mentorId == userId).toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Explore")),
+      backgroundColor: Colors.black,
+
+      appBar: AppBar(
+        title: const Text("Explore"),
+        backgroundColor: Colors.transparent,
+      ),
 
       floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.cyan,
         onPressed: () async {
           final result = await Navigator.push(
             context,
@@ -181,7 +309,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
           if (result == true) fetch();
         },
-        child: const Icon(Icons.add),
+        child: const Icon(Icons.add, color: Colors.black),
       ),
 
       body: isLoading
@@ -189,62 +317,34 @@ class _ExploreScreenState extends State<ExploreScreen> {
           : RefreshIndicator(
         onRefresh: fetch,
         child: ListView(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(16),
           children: [
 
-            const Text("🌍 All Mentors",
+            /// SECTION 1
+            const Text("🌍 Discover Mentors",
                 style: TextStyle(
+                    color: Colors.white,
                     fontSize: 18,
                     fontWeight: FontWeight.bold)),
 
             const SizedBox(height: 10),
 
-            ...listings.map((l) => GestureDetector(
-              onTap: () => openSlots(l),
-              child: Card(
-                color: Colors.grey[900],
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: ListTile(
-                  contentPadding:
-                  const EdgeInsets.all(12),
-                  title: Text(
-                    l.skill,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment:
-                    CrossAxisAlignment.start,
-                    children: [
-                      Text("👤 ${l.mentorName}",
-                          style: const TextStyle(
-                              color: Colors.white70)),
-                      Text(
-                          "${l.level} • ${l.duration} mins",
-                          style: const TextStyle(
-                              color: Colors.white60)),
-                      Text(
-                          "Slots: ${l.totalSlots}",
-                          style: const TextStyle(
-                              color: Colors.cyanAccent)),
-                    ],
-                  ),
-                  trailing: const Icon(Icons.arrow_forward,
-                      color: Colors.white),
-                ),
-              ),
-            )),
+            ...listings.map(buildCard),
 
             const SizedBox(height: 20),
-            const Divider(),
 
-            const Text("🧑 My Listings",
+            /// SECTION 2
+            const Divider(color: Colors.white24),
+
+            const SizedBox(height: 10),
+
+            const Text("🧑 Your Listings",
                 style: TextStyle(
+                    color: Colors.white,
                     fontSize: 18,
                     fontWeight: FontWeight.bold)),
+
+            const SizedBox(height: 10),
 
             ...myListings.map((l) => Card(
               child: ListTile(
@@ -259,8 +359,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                           context,
                           MaterialPageRoute(
                             builder: (_) =>
-                                EditListingScreen(
-                                    listing: l),
+                                EditListingScreen(listing: l),
                           ),
                         );
 

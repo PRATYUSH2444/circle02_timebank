@@ -16,16 +16,17 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   int currentIndex = 0;
 
-  // ✅ UPDATED SCREENS LIST
-  final List<Widget> screens = [
-    const FeedScreen(),
-    const ExploreScreen(),
-    const SizedBox(),
-    const SessionsScreen(),
-    const ProfileScreen(),
+  /// 🔥 KEEP STATE (IMPORTANT)
+  final List<Widget> screens = const [
+    FeedScreen(),
+    ExploreScreen(),
+    SizedBox(), // Post handled separately
+    SessionsScreen(),
+    ProfileScreen(),
   ];
 
   void onTabTapped(int index) {
+    /// 🔥 HANDLE POST BUTTON
     if (index == 2) {
       showDialog(
         context: context,
@@ -42,34 +43,63 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: screens[currentIndex],
+      backgroundColor: Colors.black,
 
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: currentIndex,
-        onTap: onTabTapped,
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: "Home",
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.search),
-            label: "Explore",
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.add_circle, size: 32),
-            label: "Post",
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today),
-            label: "Sessions",
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: "Profile",
-          ),
-        ],
+      /// 🔥 KEEP SCREENS ALIVE (NO REBUILD)
+      body: IndexedStack(
+        index: currentIndex,
+        children: screens,
+      ),
+
+      /// 🔥 MODERN NAV BAR
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Colors.black,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.6),
+              blurRadius: 10,
+            )
+          ],
+        ),
+        child: BottomNavigationBar(
+          currentIndex: currentIndex,
+          onTap: onTabTapped,
+          type: BottomNavigationBarType.fixed,
+
+          backgroundColor: Colors.black,
+          selectedItemColor: Colors.cyanAccent,
+          unselectedItemColor: Colors.grey,
+
+          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
+
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.home_outlined),
+              activeIcon: Icon(Icons.home),
+              label: "Home",
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.search_outlined),
+              activeIcon: Icon(Icons.search),
+              label: "Explore",
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.add_circle, size: 34),
+              label: "Post",
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.calendar_today_outlined),
+              activeIcon: Icon(Icons.calendar_today),
+              label: "Sessions",
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.person_outline),
+              activeIcon: Icon(Icons.person),
+              label: "Profile",
+            ),
+          ],
+        ),
       ),
     );
   }
