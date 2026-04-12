@@ -3,10 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/chat_user_provider.dart';
+import '../../../utils/time_utils.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final String sessionId;
-
   const ChatScreen({super.key, required this.sessionId});
 
   @override
@@ -23,8 +23,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   late RealtimeChannel _channel;
   final supabase = Supabase.instance.client;
-
-  // ─── Lifecycle ────────────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -43,8 +41,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     super.dispose();
   }
 
-  // ─── Fetch (limit 50) ─────────────────────────────────────────────────────
-
   Future<void> _fetchMessages() async {
     final data = await supabase
         .from('messages')
@@ -54,23 +50,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .limit(50);
 
     if (!mounted) return;
-
     setState(() {
       messages = List<Map<String, dynamic>>.from(data);
       isLoading = false;
     });
-
     _scrollToBottom(jump: true);
     _markAsSeen();
   }
 
-  // ─── Realtime ─────────────────────────────────────────────────────────────
-
   void _subscribeRealtime() {
     _channel = supabase
         .channel('chat:${widget.sessionId}')
-
-    // INSERT
         .onPostgresChanges(
       event: PostgresChangeEvent.insert,
       schema: 'public',
@@ -83,27 +73,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       callback: (payload) {
         final newMsg = Map<String, dynamic>.from(payload.newRecord);
         if (!mounted) return;
-
         setState(() {
           final exists = messages.any((m) => m['id'] == newMsg['id']);
           if (!exists) {
             messages.add(newMsg);
-            // ✅ FIX 1 — always sort after insert
             messages.sort((a, b) =>
                 DateTime.parse(a['created_at'])
                     .compareTo(DateTime.parse(b['created_at'])));
           }
         });
-
         _scrollToBottom();
-
-        // ✅ FIX 3 — reset seen flag so new messages get marked
         _seenPending = true;
         _markAsSeen();
       },
     )
-
-    // UPDATE (seen tick update)
         .onPostgresChanges(
       event: PostgresChangeEvent.update,
       schema: 'public',
@@ -116,16 +99,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       callback: (payload) {
         final updated = Map<String, dynamic>.from(payload.newRecord);
         if (!mounted) return;
-
         setState(() {
-          final idx =
-          messages.indexWhere((m) => m['id'] == updated['id']);
+          final idx = messages.indexWhere((m) => m['id'] == updated['id']);
           if (idx != -1) messages[idx] = updated;
         });
       },
     )
-
-    // ✅ FIX 2 — DELETE handler
         .onPostgresChanges(
       event: PostgresChangeEvent.delete,
       schema: 'public',
@@ -138,21 +117,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       callback: (payload) {
         final id = payload.oldRecord['id'];
         if (!mounted) return;
-
-        setState(() {
-          messages.removeWhere((m) => m['id'] == id);
-        });
+        setState(() => messages.removeWhere((m) => m['id'] == id));
       },
     )
         .subscribe();
   }
 
-  // ─── Send ─────────────────────────────────────────────────────────────────
-
   Future<void> _sendMessage() async {
     final text = controller.text.trim();
     if (text.isEmpty) return;
-
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
@@ -164,39 +137,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       'sender_id': user.id,
       'message': text,
       'seen': false,
-      'created_at': DateTime.now().toUtc().toIso8601String(),
+      'created_at': TimeUtils.nowUtc(), // ✅ always UTC
     });
   }
 
-  // ─── Seen ─────────────────────────────────────────────────────────────────
-
   Future<void> _markAsSeen() async {
-    // ✅ FIX 3 — guard prevents DB spam
     if (!_seenPending) return;
-
     final userId = supabase.auth.currentUser?.id;
     if (userId == null) return;
-
     final unseen = messages
         .where((m) => m['sender_id'] != userId && m['seen'] == false)
         .map((m) => m['id'])
         .toList();
-
     if (unseen.isEmpty) return;
-
     await supabase
         .from('messages')
         .update({'seen': true}).inFilter('id', unseen);
-
     _seenPending = false;
   }
-
-  // ─── Typing ───────────────────────────────────────────────────────────────
 
   Future<void> _setTyping(bool value) async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
-
     await supabase.from('typing_status').upsert({
       'session_id': widget.sessionId,
       'user_id': user.id,
@@ -204,14 +166,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
-  // ─── Scroll ───────────────────────────────────────────────────────────────
-
   void _scrollToBottom({bool jump = false}) {
     Future.delayed(const Duration(milliseconds: 100), () {
       if (!scrollController.hasClients) return;
       if (jump) {
-        scrollController.jumpTo(
-            scrollController.position.maxScrollExtent);
+        scrollController.jumpTo(scrollController.position.maxScrollExtent);
       } else {
         scrollController.animateTo(
           scrollController.position.maxScrollExtent,
@@ -222,33 +181,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
-  // ─── Helpers ──────────────────────────────────────────────────────────────
-
-  String _formatTime(String? iso) {
-    if (iso == null || iso.isEmpty) return "";
-    try {
-      final dt = DateTime.parse(iso).toLocal();
-      return "${dt.hour}:${dt.minute.toString().padLeft(2, '0')}";
-    } catch (_) {
-      return "";
-    }
-  }
-
-  bool _isSameDay(String? a, String? b) {
-    if (a == null || b == null) return true;
-    try {
-      final da = DateTime.parse(a).toLocal();
-      final db = DateTime.parse(b).toLocal();
-      return da.year == db.year &&
-          da.month == db.month &&
-          da.day == db.day;
-    } catch (_) {
-      return true;
-    }
-  }
-
-  // ─── Build ────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final userAsync = ref.watch(chatUserProvider(widget.sessionId));
@@ -256,7 +188,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A0A),
-
       appBar: AppBar(
         backgroundColor: const Color(0xFF111111),
         elevation: 0,
@@ -269,41 +200,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               children: [
                 CircleAvatar(
                   radius: 20,
-                  backgroundImage:
-                  avatar != null ? NetworkImage(avatar) : null,
+                  backgroundImage: avatar != null ? NetworkImage(avatar) : null,
                   backgroundColor: Colors.cyan.withOpacity(0.2),
                   child: avatar == null
-                      ? Text(
-                    name[0].toUpperCase(),
-                    style: const TextStyle(
-                        color: Colors.cyan,
-                        fontWeight: FontWeight.bold),
-                  )
+                      ? Text(name[0].toUpperCase(),
+                      style: const TextStyle(
+                          color: Colors.cyan, fontWeight: FontWeight.bold))
                       : null,
                 ),
                 const SizedBox(width: 10),
-                Text(
-                  name,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold)),
+                    const Text("Session chat",
+                        style: TextStyle(color: Colors.white38, fontSize: 11)),
+                  ],
                 ),
               ],
             );
           },
           loading: () => const Text("Loading...",
               style: TextStyle(color: Colors.white70, fontSize: 14)),
-          error: (_, __) => const Text("Chat",
-              style: TextStyle(color: Colors.white)),
+          error: (_, __) =>
+          const Text("Chat", style: TextStyle(color: Colors.white)),
         ),
       ),
-
       body: Column(
         children: [
-
-          // ── Messages ──────────────────────────────────────────────────
           Expanded(
             child: isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -313,14 +241,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: const [
                   Icon(Icons.chat_bubble_outline,
-                      color: Colors.white24, size: 48),
-                  SizedBox(height: 12),
-                  Text(
-                    "No messages yet\nSay hello! 👋",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: Colors.white38, height: 1.6),
-                  ),
+                      color: Colors.white24, size: 52),
+                  SizedBox(height: 14),
+                  Text("No messages yet\nSay hello! 👋",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.white38, height: 1.6)),
                 ],
               ),
             )
@@ -332,15 +258,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               itemCount: messages.length,
               itemBuilder: (context, index) {
                 final msg = messages[index];
-                final isMe =
-                    msg['sender_id'] == currentUser;
-                final createdAt =
-                msg['created_at']?.toString();
+                final isMe = msg['sender_id'] == currentUser;
+                final createdAt = msg['created_at']?.toString();
 
                 final showDate = index == 0 ||
-                    !_isSameDay(
-                      messages[index - 1]['created_at']
-                          ?.toString(),
+                    !TimeUtils.isSameDay(
+                      messages[index - 1]['created_at']?.toString(),
                       createdAt,
                     );
 
@@ -349,7 +272,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     if (showDate) _DateChip(createdAt),
                     _MessageBubble(
                       text: msg['message'] ?? '',
-                      time: _formatTime(createdAt),
+                      // ✅ FIXED: TimeUtils → correct IST time
+                      time: TimeUtils.formatClock(createdAt),
                       isMe: isMe,
                       seen: msg['seen'] ?? false,
                     ),
@@ -358,8 +282,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               },
             ),
           ),
-
-          // ── Input ─────────────────────────────────────────────────────
           _InputBar(
             controller: controller,
             onSend: _sendMessage,
@@ -377,38 +299,21 @@ class _DateChip extends StatelessWidget {
   final String? isoString;
   const _DateChip(this.isoString);
 
-  String _label() {
-    if (isoString == null || isoString!.isEmpty) return "";
-    try {
-      final date = DateTime.parse(isoString!).toLocal();
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final d = DateTime(date.year, date.month, date.day);
-      if (d == today) return "Today";
-      if (d == today.subtract(const Duration(days: 1))) return "Yesterday";
-      return "${date.day}/${date.month}/${date.year}";
-    } catch (_) {
-      return "";
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final label = _label();
+    final label = TimeUtils.formatDateLabel(isoString);
     if (label.isEmpty) return const SizedBox();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Center(
         child: Container(
-          padding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
           decoration: BoxDecoration(
             color: Colors.white10,
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(label,
-              style: const TextStyle(
-                  color: Colors.white54, fontSize: 11)),
+              style: const TextStyle(color: Colors.white54, fontSize: 11)),
         ),
       ),
     );
@@ -436,13 +341,8 @@ class _MessageBubble extends StatelessWidget {
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: EdgeInsets.only(
-          top: 2,
-          bottom: 2,
-          left: isMe ? 60 : 0,
-          right: isMe ? 0 : 60,
-        ),
-        padding: const EdgeInsets.symmetric(
-            horizontal: 14, vertical: 10),
+            top: 3, bottom: 3, left: isMe ? 64 : 0, right: isMe ? 0 : 64),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: isMe ? Colors.cyan : const Color(0xFF1E1E1E),
           borderRadius: BorderRadius.only(
@@ -459,7 +359,7 @@ class _MessageBubble extends StatelessWidget {
             BoxShadow(
               color: isMe
                   ? Colors.cyan.withOpacity(0.15)
-                  : Colors.black.withOpacity(0.3),
+                  : Colors.black.withOpacity(0.4),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -469,33 +369,24 @@ class _MessageBubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              text,
-              style: TextStyle(
-                color: isMe ? Colors.black : Colors.white,
-                fontSize: 15,
-                height: 1.4,
-              ),
-            ),
+            Text(text,
+                style: TextStyle(
+                    color: isMe ? Colors.black : Colors.white,
+                    fontSize: 15,
+                    height: 1.4)),
             const SizedBox(height: 4),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  time,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: isMe ? Colors.black45 : Colors.white38,
-                  ),
-                ),
+                Text(time,
+                    style: TextStyle(
+                        fontSize: 10,
+                        color: isMe ? Colors.black45 : Colors.white38)),
                 if (isMe) ...[
                   const SizedBox(width: 4),
-                  Icon(
-                    seen ? Icons.done_all : Icons.done,
-                    size: 13,
-                    color:
-                    seen ? Colors.blue[700] : Colors.black38,
-                  ),
+                  Icon(seen ? Icons.done_all : Icons.done,
+                      size: 13,
+                      color: seen ? Colors.blue[700] : Colors.black38),
                 ],
               ],
             ),
@@ -523,13 +414,11 @@ class _InputBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Container(
-        padding: const EdgeInsets.symmetric(
-            horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: const BoxDecoration(
           color: Color(0xFF111111),
-          border: Border(
-            top: BorderSide(color: Colors.white10, width: 0.5),
-          ),
+          border:
+          Border(top: BorderSide(color: Colors.white10, width: 0.5)),
         ),
         child: Row(
           children: [
@@ -537,14 +426,12 @@ class _InputBar extends StatelessWidget {
               child: TextField(
                 controller: controller,
                 onChanged: (val) => onTyping(val.isNotEmpty),
-                style: const TextStyle(
-                    color: Colors.white, fontSize: 15),
+                style: const TextStyle(color: Colors.white, fontSize: 15),
                 maxLines: null,
                 textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
                   hintText: "Message...",
-                  hintStyle:
-                  const TextStyle(color: Colors.white38),
+                  hintStyle: const TextStyle(color: Colors.white38),
                   filled: true,
                   fillColor: const Color(0xFF1C1C1C),
                   contentPadding: const EdgeInsets.symmetric(
@@ -561,12 +448,10 @@ class _InputBar extends StatelessWidget {
             GestureDetector(
               onTap: onSend,
               child: Container(
-                width: 44,
-                height: 44,
+                width: 46,
+                height: 46,
                 decoration: const BoxDecoration(
-                  color: Colors.cyan,
-                  shape: BoxShape.circle,
-                ),
+                    color: Colors.cyan, shape: BoxShape.circle),
                 child: const Icon(Icons.send_rounded,
                     color: Colors.black, size: 20),
               ),
